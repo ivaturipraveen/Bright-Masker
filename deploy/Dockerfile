@@ -2,7 +2,7 @@ FROM vllm/vllm-openai:latest
 
 WORKDIR /app
 
-ARG LLM_MODEL=Qwen/Qwen3-8B-Instruct
+ARG LLM_MODEL=Qwen/Qwen3-8B
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

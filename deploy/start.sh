@@ -52,7 +52,7 @@ lines = [
   'MODEL_72B_TIMEOUT=' + os.getenv('MODEL_72B_TIMEOUT', '45.0'),
   'MODEL_72B_MAX_RETRIES=' + os.getenv('MODEL_72B_MAX_RETRIES', '2'),
   'MODEL_DEPLOYED_DISPLAY=Qwen 3 8B (Deployed vLLM)',
-  'MODEL_DEPLOYED_NAME=' + os.getenv('MODEL_DEPLOYED_NAME', 'Qwen/Qwen3-8B-Instruct'),
+  'MODEL_DEPLOYED_NAME=' + os.getenv('MODEL_DEPLOYED_NAME', 'Qwen/Qwen3-8B'),
   'MODEL_DEPLOYED_BASE_URL=' + os.getenv('MODEL_DEPLOYED_BASE_URL', 'http://127.0.0.1:8002/v1'),
   'MODEL_DEPLOYED_API_KEY=' + os.getenv('MODEL_DEPLOYED_API_KEY', 'no-key-needed'),
   'MODEL_DEPLOYED_MAX_TOKENS=' + os.getenv('MODEL_DEPLOYED_MAX_TOKENS', '1024'),
@@ -132,7 +132,7 @@ echo "  Setup complete — starting services"
 echo "============================================"
 
 # ── Step 7: Start vLLM ───────────────────────────────────────────────────────
-MODEL_NAME="${MODEL_DEPLOYED_NAME:-Qwen/Qwen3-8B-Instruct}"
+MODEL_NAME="${MODEL_DEPLOYED_NAME:-Qwen/Qwen3-8B}"
 # RunPod (and some images) bind nginx on 8001 — use 8002+ for vLLM
 VLLM_PORT="${VLLM_PORT:-8002}"
 APP_PORT="${PORT:-8000}"
