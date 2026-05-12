@@ -114,33 +114,33 @@ else
   echo "[setup] spaCy en_core_web_lg already present — skipping."
 fi
 
-# ── Step 5: Install vLLM if missing ──────────────────────────────────────────
-if ! "$PY" -c "import vllm" &>/dev/null; then
-  echo "[setup] Installing vLLM..."
-  "$PY" -m pip install $PIP_BIG vllm
-else
-  echo "[setup] vLLM already installed — skipping."
-fi
+# ── Step 5: Install torch cu124 + vLLM 0.7.x (compatible pair for CUDA 12.x) ─
+# vLLM 0.20+ requires torch 2.11 (cu130 only) — not usable on CUDA 12.x drivers.
+# vLLM 0.7.3 supports torch 2.5.x and is the latest stable for cu124.
+VLLM_TARGET="0.7.3"
+TORCH_CUDA_OK=$( "$PY" -c "import torch; print(torch.cuda.is_available())" 2>/dev/null || echo "False" )
+VLLM_VER=$( "$PY" -c "import vllm; print(vllm.__version__)" 2>/dev/null || echo "none" )
 
-# vLLM often pulls torch built for CUDA 13 (cu130) but RunPod drivers are 12.x.
-# Detect driver CUDA version and reinstall matching torch if CUDA is not available.
-if ! "$PY" -c "import torch; assert torch.cuda.is_available()" &>/dev/null; then
-  echo "[setup] torch.cuda not available — detecting driver CUDA version..."
-  CUDA_DRV=$( nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo "" )
-  echo "[setup] nvidia-smi driver: $CUDA_DRV"
-  # RunPod 550.x / 535.x drivers support CUDA 12.4 / 12.2 — default to cu124
-  echo "[setup] Reinstalling torch for cu124 to match driver..."
+if [ "$VLLM_VER" != "$VLLM_TARGET" ] || [ "$TORCH_CUDA_OK" != "True" ]; then
+  echo "[setup] Installing torch 2.5.1+cu124 and vLLM $VLLM_TARGET..."
+  # Install torch for cu124 first so vLLM does not pull cu130
   "$PY" -m pip install $PIP_BIG \
     "torch==2.5.1" "torchvision==0.20.1" \
     --index-url https://download.pytorch.org/whl/cu124
-  "$PY" -c "import torch; print('[setup] torch CUDA after fix: cuda=', torch.cuda.is_available(), torch.version.cuda)"
+  # Install vLLM pinned — must not upgrade torch
+  "$PY" -m pip install $PIP_BIG "vllm==$VLLM_TARGET"
+  # vLLM may re-pull torch; force cu124 again
+  "$PY" -m pip install $PIP_BIG \
+    "torch==2.5.1" "torchvision==0.20.1" \
+    --index-url https://download.pytorch.org/whl/cu124
 else
-  "$PY" -c "import torch; print('[setup] torch CUDA ok: cuda=', torch.cuda.is_available(), torch.version.cuda)"
+  echo "[setup] torch+vLLM $VLLM_VER already correct — skipping."
 fi
+"$PY" -c "import torch; print('[setup] torch CUDA:', torch.cuda.is_available(), torch.version.cuda)"
 
-# vLLM 0.20.x forbids transformers 5.0–5.5.x; GLiNER needs <5.2 — overlap is 4.56.x–4.x
-echo "[setup] Pinning transformers for vLLM + GLiNER compatibility..."
-"$PY" -m pip install $PIP_BIG "transformers>=4.56.0,<5.0.0"
+# vLLM 0.7.x + GLiNER both need transformers in a compatible range
+echo "[setup] Pinning transformers for vLLM 0.7 + GLiNER compatibility..."
+"$PY" -m pip install $PIP_BIG "transformers>=4.45.0,<5.0.0"
 
 # ── Step 6: Pre-download GLiNER model ────────────────────────────────────────
 GLINER_MODEL="${GLINER_MODEL_NAME:-urchade/gliner_large-v2.1}"
