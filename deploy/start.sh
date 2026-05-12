@@ -3,6 +3,10 @@ set -e
 
 # RunPod PyTorch images: packages go to python3; plain `python` may not match `pip`.
 PY="${PYTHON:-python3}"
+# vLLM wheels are huge; default pip timeouts often fail on RunPod.
+if [ -z "$PIP_BIG" ]; then
+  PIP_BIG="--default-timeout=900 --retries 15"
+fi
 
 echo "============================================"
 echo "  Bright Masker — RunPod Startup"
@@ -84,7 +88,7 @@ print('.env written.')
 # ── Step 3: Install Python dependencies ──────────────────────────────────────
 if ! "$PY" -c "import fastapi" &>/dev/null; then
   echo "[setup] Installing Python dependencies ($PY -m pip)..."
-  "$PY" -m pip install -r requirements.txt
+  "$PY" -m pip install $PIP_BIG -r requirements.txt
   echo "[setup] Python dependencies installed."
 else
   echo "[setup] Python deps already installed — skipping."
@@ -101,13 +105,13 @@ fi
 # ── Step 5: Install vLLM if missing ──────────────────────────────────────────
 if ! "$PY" -c "import vllm" &>/dev/null; then
   echo "[setup] Installing vLLM..."
-  "$PY" -m pip install vllm
+  "$PY" -m pip install $PIP_BIG vllm
 else
   echo "[setup] vLLM already installed — skipping."
 fi
 # vLLM pulls a newer transformers; GLiNER needs <5.2 — pin after vLLM install
 echo "[setup] Pinning transformers for GLiNER compatibility..."
-"$PY" -m pip install "transformers>=4.51.3,<5.2.0"
+"$PY" -m pip install $PIP_BIG "transformers>=4.51.3,<5.2.0"
 
 # ── Step 6: Pre-download GLiNER model ────────────────────────────────────────
 GLINER_MODEL="${GLINER_MODEL_NAME:-urchade/gliner_large-v2.1}"
