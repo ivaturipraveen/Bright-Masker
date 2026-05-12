@@ -204,6 +204,9 @@ if curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"' 2>/dev/nu
   echo "[1/2] vLLM already running on port $VLLM_PORT — skipping."
 else
   echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT..."
+  # --enforce-eager: skip CUDA graph capture — avoids Triton/graph compilation
+  # crashes that produce "Engine process failed to start" even with free VRAM.
+  # Remove via VLLM_EXTRA_ARGS='' only if you need max throughput and graphs work.
   # shellcheck disable=SC2086
   "$PY" -m vllm.entrypoints.openai.api_server \
     --model "$MODEL_NAME" \
@@ -213,30 +216,34 @@ else
     --gpu-memory-utilization "$GPU_MEM" \
     --disable-log-requests \
     --dtype "$VLLM_DTYPE" \
+    --enforce-eager \
     $VLLM_EXTRA_ARGS \
     > /var/log/vllm.log 2>&1 &
 
   VLLM_PID=$!
-  echo "  vLLM PID: $VLLM_PID"
+  echo "  vLLM PID: $VLLM_PID  (live log → /var/log/vllm.log)"
+
+  # Stream log to stdout so worker subprocess crashes appear in RunPod pod logs
+  tail -f /var/log/vllm.log &
+  TAIL_PID=$!
+
   WAITED=0
   until curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"'; do
     if ! kill -0 $VLLM_PID 2>/dev/null; then
-      echo "ERROR: vLLM process died. Full log: /var/log/vllm.log (excerpt below)"
-      tail -250 /var/log/vllm.log
+      kill $TAIL_PID 2>/dev/null
       echo ""
-      echo "Hints: raise VRAM for weights+KV → set VLLM_GPU_UTIL=0.90 (default) or 0.92;"
-      echo "  OOM during masking → lower VLLM_GPU_UTIL or VLLM_MAX_MODEL_LEN (e.g. 3072);"
-      echo "  older GPU → VLLM_DTYPE=float16; unstable worker → VLLM_EXTRA_ARGS='--enforce-eager'"
+      echo "ERROR: vLLM process died — see log above and full file: /var/log/vllm.log"
       exit 1
     fi
-    echo -n "."
     sleep 5
     WAITED=$((WAITED + 5))
     if [ $WAITED -gt 600 ]; then
+      kill $TAIL_PID 2>/dev/null
       echo "ERROR: vLLM did not start within 10 minutes"
       exit 1
     fi
   done
+  kill $TAIL_PID 2>/dev/null
   echo ""
   echo "  vLLM ready on port $VLLM_PORT ✓"
 fi
