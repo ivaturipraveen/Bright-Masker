@@ -23,6 +23,10 @@ fi
 
 cd /app
 
+# RunPod / base images sometimes set HF offline — GLiNER + vLLM need Hub on first run.
+export HF_HUB_OFFLINE=0
+export TRANSFORMERS_OFFLINE=0
+
 # ── Step 2: Write .env from RunPod environment variables ─────────────────────
 echo "[setup] Writing .env from environment..."
 python3 -c "
