@@ -1,0 +1,1473 @@
+# =============================================================================
+# PII Entity Configuration
+# =============================================================================
+# Single source of truth for all entity behaviour.
+# No entity name, label, or masking format is written in Python.
+#
+# Policy values used on entities:
+#   hipaa          — HIPAA Safe Harbor 18 PHI identifiers (45 CFR §164.514)
+#   pci_dss        — PCI-DSS v4.0 cardholder & sensitive authentication data
+#   general        — General PII (passwords, credentials, sensitive attributes)
+#   law_enforcement— Criminal justice & CJIS records
+#   transportation — Vehicle, driver, and transit-specific identifiers
+#
+# Masking format:
+#   {n} = sequential counter per entity TYPE within one document.
+#   Same original value → same label+number within a document.
+#
+# Fields:
+#   id                   Unique snake_case identifier
+#   display_name         Human-readable label
+#   description          Detection hint for the LLM
+#   policy               List of applicable regulatory standards
+#   enabled              true = active | false = disabled
+#   priority             1 (highest) to 10 — resolves overlapping spans
+#   confidence_threshold Override global threshold (optional)
+#   presidio_type        Maps to Presidio built-in recognizer (optional)
+#   patterns             List of regex patterns (capturing group = the value)
+#   masking.strategy     redact | substitute | hash | partial_redact | encrypt
+#   masking.format       Template — {n} auto-counter, plus {hash8} {last4} etc.
+# =============================================================================
+
+global:
+  default_confidence_threshold: 0.85
+  default_masking_strategy: redact
+  language: auto
+
+  # ── Policy gates ────────────────────────────────────────────────────────────
+  # List only the policies you want active. Leave empty ([]) to enable ALL.
+  # Example (HIPAA + PCI only): enabled_policies: [hipaa, pci_dss]
+  enabled_policies: []
+
+  # ── Label-word filter ────────────────────────────────────────────────────────
+  # LLM validation handles label vs value disambiguation in context.
+  # Add entries here only for edge cases the LLM consistently misses.
+  label_blocklist: []
+
+  # ── No-multiline entity IDs ──────────────────────────────────────────────────
+  # If a detected span for these entity types contains a newline, it is trimmed
+  # to the text before the first newline (never discarded entirely).
+  no_multiline_entity_ids:
+    - person_name
+    - email_address
+    - phone_number
+    - fax_number
+    - ssn
+    - credit_card_number
+    - ip_address
+    - medical_record_number
+    - date_of_birth
+    - bank_account_number
+    - bank_routing_number
+    - iban
+    - card_expiration_date
+    - card_service_code
+    - npi_number
+    - dea_number
+    - swift_bic_code
+
+
+entities:
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HIPAA SAFE HARBOR — 18 PHI Identifiers  (45 CFR §164.514(b)(2))
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── #1  Names ─────────────────────────────────────────────────────────────────
+
+  - id: person_name
+    display_name: Person / Full Name / Alias
+    description: "Human personal names only: first name, last name, full name, nickname, or alias of a real person. Do NOT flag dates, section headers, department names, medical terms, organization names, city names, or state names."
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    presidio_type: PERSON
+    patterns:
+      - '(?:Dr\.|Prof\.|Mr\.|Mrs\.|Ms\.|Mx\.|Attorney|Atty\.)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+'
+    masking:
+      strategy: redact
+      format: "[PERSON {n}]"
+
+# ── #2  Geographic data smaller than state ────────────────────────────────────
+
+  - id: street_address
+    display_name: Street Address Line / House Number and Street
+    description: "Street address line only: house/building number + street name. Do NOT include city, state, or zip — those are separate entities. Example: '742 Evergreen Terrace', '85 River Road', '1600 Pennsylvania Ave NW Apt 3B'."
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(\d{1,6}[ \t]+[A-Za-z0-9 \t]+[ \t]+(?:Avenue|Ave|Street|St|Boulevard|Blvd|Road|Rd|Lane|Ln|Drive|Dr|Court|Ct|Way|Place|Pl|Circle|Cir|Terrace|Terr?|Highway|Hwy|Parkway|Pkwy)\.?(?:[ \t]+(?:Apt\.?|Apartment|Suite|Ste|Unit|#)[ \t]*[\w\-]+)?)'
+    masking:
+      strategy: redact
+      format: "[ADDRESS {n}]"
+
+  - id: city_name
+    display_name: City Name / Town / Municipality
+    description: "Name of a city, town, or municipality when it is part of a personal address or location disclosure. Example: 'Chicago', 'San Francisco', 'Newark'. Do NOT flag city names mentioned as generic geographic context."
+    policy: [hipaa]
+    enabled: true
+    priority: 3
+    gliner_label: "city or town in a personal address"
+    masking:
+      strategy: redact
+      format: "[LOCATION {n}]"
+
+  - id: us_state
+    display_name: US State or Territory Abbreviation
+    description: "Two-letter US state or territory abbreviation when part of a personal address. Example: 'IL', 'CA', 'TX', 'NY'. Only flag when adjacent to a street address or zip code."
+    policy: [hipaa]
+    enabled: true
+    priority: 3
+    patterns:
+      - '(?:,\s*)(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)(?=\s+\d{5})'
+    masking:
+      strategy: redact
+      format: "[STATE {n}]"
+
+  - id: zipcode
+    display_name: ZIP Code / Postal Code
+    description: "US ZIP code or postal code when part of a personal address. Example: '60614', '94303', '07102-1234'."
+    policy: [hipaa]
+    enabled: true
+    priority: 3
+    patterns:
+      - '(?:,?\s*[A-Z]{2}\s+)(\d{5}(?:-\d{4})?)\b'
+      - '(?:zip|postal)\s+(?:code|#)?\s*:?\s*(\d{5}(?:-\d{4})?)'
+    masking:
+      strategy: redact
+      format: "[ZIPCODE {n}]"
+
+  - id: precise_geolocation
+    display_name: Precise Geolocation
+    description: "GPS coordinates or precise physical location data. Example: 37.7749, -122.4194"
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    gliner_label: "GPS coordinates or precise geolocation"
+    patterns:
+      - '((?:-?\d{1,3}\.\d{4,8})\s*,\s*(?:-?\d{1,3}\.\d{4,8}))'
+      - '(?:lat(?:itude)?|lon(?:g(?:itude)?)?)\s*[:#=]?\s*(-?\d{1,3}\.\d{4,8})'
+    masking:
+      strategy: redact
+      format: "[GPS {n}]"
+
+# ── #3  Dates (except year) tied to individual ────────────────────────────────
+
+  - id: date_of_birth
+    display_name: Date of Birth
+    description: "Flag only the actual date value (e.g. 07/15/2005, 15/07/2005, 2005-07-15, March 14 1988) when near keywords DOB, Date of Birth, born on. NOT the label word 'DOB' itself. NOT visit dates or report dates."
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:DOB|Date\s+of\s+Birth)\s*[:#]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})'
+      - '(?:DOB|Date\s+of\s+Birth)\s*[:#]?\s*(\d{4}-\d{2}-\d{2})'
+      - 'born\s+on\s+(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})'
+      - 'born\s+on\s+(\d{4}-\d{2}-\d{2})'
+      - '(?:born|dob|date\s+of\s+birth)\s*[:#]?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4})'
+    masking:
+      strategy: redact
+      format: "[DOB {n}]"
+
+  - id: clinical_date
+    display_name: Clinical / Procedure / Event Date
+    description: "Any significant event date tied to a person: clinical visit, procedure, admission, discharge, transaction, submission, enrollment, employment start, filing, booking. Flag the date VALUE only, NOT keyword labels."
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:PROCEDURE|RECEIVED|REPORT|ADMISSION|DISCHARGE|SERVICE|VISIT|RECORD(?:ED)?|SUBMITTED?|CREATED?|OPENED?|LOSS|INCIDENT|TRANSACTION|ENROLLMENT|TERMINATION|EFFECTIVE|EXPIRY|EXPIRATION|FILING|HEARING|ARREST|CONVICTION|BOOKING)\s+DATE\s*[:#]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})'
+      - 'DATE\s+OF\s+(?:LOSS|INCIDENT|SERVICE|ADMISSION|DISCHARGE|BIRTH|DEATH|INJURY|ACCIDENT|FILING|ARREST)\s*[:#]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})'
+      - '^(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})\s+[A-Za-z]'
+      - '(?:Done|Pending|Completed|Ordered|Processed|Submitted|Filed|Booked|Enrolled|Joined|Registered|Reported|Opened|Arrested|Convicted|Sentenced|Created|Issued|Activated|Closed|Resolved|Reviewed|Approved|Denied|Referred)\s*[:\s]+(?:on\s+)?(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})'
+      - '[—–]\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})\b'
+      - '(?:on\s+)(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{4})'
+    masking:
+      strategy: redact
+      format: "[DATE {n}]"
+
+# ── #4  Phone numbers ─────────────────────────────────────────────────────────
+
+  - id: phone_number
+    display_name: Phone Number
+    description: "Flag only the actual digit sequence of a phone number (e.g. +1-415-555-0192, (419) 555-8923). NOT the label word 'Phone' or 'Tel' itself."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    presidio_type: PHONE_NUMBER
+    patterns:
+      - '(\(\d{3}\)\s*\d{3}[-.\s]\d{4})'
+      - '(\+\d[\d\s\-\(\)]{9,15})'
+    masking:
+      strategy: redact
+      format: "[PHONE NUMBER {n}]"
+
+# ── #5  Fax numbers ───────────────────────────────────────────────────────────
+
+  - id: fax_number
+    display_name: Fax Number
+    description: "Fax number digit sequence near keyword: Fax, FAX, Fax Number. NOT the label 'Fax' itself."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(?:FAX|Fax)\s*(?:Number|No|#)?\s*[:#]?\s*(\+?[\d\s\-\(\)\.]{9,18})'
+      - '(?:FAX|Fax)\s*[:#]\s*(\+?[\d\s\-\(\)\.]{9,18})'
+    masking:
+      strategy: redact
+      format: "[FAX NUMBER {n}]"
+
+# ── #6  Email addresses ───────────────────────────────────────────────────────
+
+  - id: email_address
+    display_name: Email Address
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    presidio_type: EMAIL_ADDRESS
+    masking:
+      strategy: redact
+      format: "[EMAIL {n}]"
+
+# ── #7  Social Security Numbers ───────────────────────────────────────────────
+
+  - id: ssn
+    display_name: Social Security Number
+    description: "Flag only the numeric value in format NNN-NN-NNNN or 9 digits (e.g. 078-05-1120). NOT the label word 'SSN' itself."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    presidio_type: US_SSN
+    patterns:
+      - '(\d{3}-\d{2}-\d{4})'
+    masking:
+      strategy: redact
+      format: "[SSN {n}]"
+
+# ── #8  Medical record numbers ────────────────────────────────────────────────
+
+  - id: medical_record_number
+    display_name: Medical Record Number (MRN)
+    description: "Flag only the numeric or alphanumeric VALUE that follows keywords: MRN, Medical Record Number, Patient ID. Example: in 'MRN:4829746' flag '4829746', NOT the word 'MRN' itself."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(?:MRN|Medical\s+Record\s+(?:Number|No))\s*[:#]?\s*([A-Za-z0-9\-]{4,15})'
+      - 'Patient\s+ID\s*[:#]?\s*([A-Za-z0-9\-]{4,15})'
+    masking:
+      strategy: redact
+      format: "[MRN {n}]"
+
+# ── #9  Health plan beneficiary numbers ───────────────────────────────────────
+
+  - id: health_plan_beneficiary_number
+    display_name: Health Plan Beneficiary / Member Number
+    description: "Health plan beneficiary number, member ID, or group number. Detect near keywords: Beneficiary Number, Member ID, Member Number, Group Number, Subscriber ID."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    patterns:
+      # Insurer-prefixed IDs — most reliable, no keyword required
+      - '(?:HPN|UHC|HP|BCBS|CIGNA|AETNA|HUMANA|ANTHEM|KAISER|UNITED|MOLINA|CVS|OPTUM)-[A-Za-z0-9\-]{4,20}'
+      # Keyword-preceded values — allow "is", ":", "#" as separators
+      - '(?:Health\s+Plan\s+)?Beneficiary\s+(?:Number|No|ID)\s*[:#=]?\s*(?:is\s+)?([A-Za-z0-9\-]{4,20})'
+      - 'Member\s+(?:ID|Number|No)\s*[:#=]?\s*(?:is\s+)?([A-Za-z0-9\-]{4,20})'
+      - 'Group\s+(?:Number|No|ID)\s*[:#=]?\s*(?:is\s+)?([A-Za-z0-9\-]{4,20})'
+      - 'Subscriber\s+(?:ID|Number|No)\s*[:#=]?\s*(?:is\s+)?([A-Za-z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[INSURANCE ID {n}]"
+
+# ── #10  Account numbers ──────────────────────────────────────────────────────
+
+  - id: insurance_policy_number
+    display_name: Insurance Policy Number
+    description: "Insurance policy number. Detect based on keyword: Policy Number, Insurance Policy, Policy #. POL- prefix always indicates an insurance policy number."
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:Policy\s+(?:Number|No|#)\s*[:#]?\s*)([A-Za-z0-9\-]{4,20})'
+      - '\bPOL-[A-Za-z0-9\-]{4,20}\b'
+    masking:
+      strategy: redact
+      format: "[INSURANCE POLICY {n}]"
+
+  - id: billing_number
+    display_name: Billing Number
+    description: "Patient or account billing number. Flag the numeric VALUE that follows keywords: Billing Number, Billing No, Bill No, BILLING NO. Example: in 'BILLING NO:8646139' flag '8646139'."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    patterns:
+      - 'BILLING\s*NO\.?\s*[:#]?\s*(\d{4,12})'
+      - 'Billing\s+(?:Number|No)\s*[:#]?\s*(\d{4,12})'
+      - 'Bill\s+No\s*[:#]?\s*(\d{4,12})'
+    masking:
+      strategy: redact
+      format: "[BILLING NO {n}]"
+
+# ── #11  Certificate / license numbers ───────────────────────────────────────
+
+  - id: medical_license_number
+    display_name: Medical License / Certificate Number
+    description: "State medical license number or professional certificate number for healthcare providers. HIPAA Safe Harbor #11. Detect near keywords: Medical License, License No, State License, Certificate Number."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(?:Medical|Clinical|State|Professional)\s+License\s*(?:Number|No|#)?\s*[:#]?\s*([A-Za-z0-9\-]{4,15})'
+      - 'License\s+(?:Number|No)\s*[:#]?\s*([A-Za-z0-9\-]{4,15})'
+      - 'Certificate\s+(?:Number|No)\s*[:#]?\s*([A-Za-z0-9\-]{4,15})'
+    masking:
+      strategy: redact
+      format: "[MED LICENSE {n}]"
+
+  - id: dea_number
+    display_name: DEA Registration Number
+    description: "DEA controlled substance registration number. Format: 2 letters + 7 digits. Flag the VALUE, NOT the label 'DEA'."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    patterns:
+      - '\bDEA\s*(?:Number|No|#|Registration)?\s*[:#]?\s*([A-Za-z]{2}\d{7})\b'
+    masking:
+      strategy: redact
+      format: "[DEA NUMBER {n}]"
+
+  - id: npi_number
+    display_name: National Provider Identifier (NPI)
+    description: "Healthcare provider NPI — exactly 10 digits following keyword NPI. HIPAA-covered provider identifier. Flag the 10-digit VALUE, NOT the label 'NPI' itself."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    patterns:
+      - '\bNPI\s*[:#]?\s*(\d{10})\b'
+      - 'National\s+Provider\s+Identifier\s*[:#]?\s*(\d{10})'
+    masking:
+      strategy: redact
+      format: "[NPI {n}]"
+
+  - id: passport_number
+    display_name: Passport Number
+    description: "Passport or travel document number. Example: X1234567 (letter + 7 digits)"
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    presidio_type: US_PASSPORT
+    patterns:
+      - 'Passport\s+(?:Number|No|#)\s*[:#]?\s*([A-Za-z][A-Za-z0-9]{5,10})'
+      - 'Passport\s+(?:Number|No|#)\s*[:#]?\s*(\d{9})'
+    masking:
+      strategy: redact
+      format: "[PASSPORT {n}]"
+
+  - id: drivers_license
+    display_name: Driver''s License Number
+    description: "Driver license number. Format varies by state. Example: D123-456-7890"
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    presidio_type: US_DRIVER_LICENSE
+    patterns:
+      - 'Driver''s?\s+License\s*[:#]?\s*([A-Za-z0-9\-]{6,18})'
+      - '\bDL\s*[:#]?\s*([A-Za-z0-9\-]{6,18})'
+    masking:
+      strategy: redact
+      format: "[DRIVERS LICENSE {n}]"
+
+# ── #12  Vehicle identifiers ──────────────────────────────────────────────────
+
+  - id: vehicle_vin
+    display_name: Vehicle Identification Number (VIN)
+    description: "17-character vehicle identification number. Example: 1HGCM82633A004352"
+    policy: [hipaa, transportation]
+    enabled: true
+    priority: 2
+    gliner_label: "vehicle identification number VIN"
+    patterns:
+      - '(?:VIN|Vehicle\s+Identification\s+Number)\s*[:#]?\s*([A-HJ-NPR-Z0-9]{17})\b'
+      - '\b([A-HJ-NPR-Z0-9]{17})\b'
+    masking:
+      strategy: redact
+      format: "[VIN {n}]"
+
+  - id: license_plate
+    display_name: License Plate Number
+    description: "Vehicle license plate number. Detect based on keyword: license plate, plate number, vehicle plate, tag number. Example: ABC-1234"
+    policy: [hipaa, transportation]
+    enabled: true
+    priority: 2
+    gliner_label: "vehicle license plate number"
+    patterns:
+      - '(?:license\s+plate|plate\s+(?:number|no\.?|#)|vehicle\s+plate|tag\s+number)\s*[:#]?\s*([A-Z0-9]{1,3}[\s\-]?[A-Z0-9]{1,4}[\s\-]?[A-Z0-9]{0,4})'
+    masking:
+      strategy: redact
+      format: "[LICENSE PLATE {n}]"
+
+# ── #13  Device identifiers ───────────────────────────────────────────────────
+
+  - id: device_identifier
+    display_name: Device Identifier / MAC Address / IMEI
+    description: "Hardware device identifiers: MAC address (AA:BB:CC:DD:EE:FF), IMEI number (15 digits, e.g. 490154203237518), device serial number"
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    patterns:
+      - '([0-9A-Fa-f]{2}(?:[:\-][0-9A-Fa-f]{2}){5})'
+      - '\bIMEI\s*[:#]?\s*(\d{15})\b'
+    masking:
+      strategy: redact
+      format: "[DEVICE ID {n}]"
+
+# ── #14  Web URLs ─────────────────────────────────────────────────────────────
+
+  - id: url_with_pii
+    display_name: URL with PII
+    description: "Flag only actual URL values (starting with http/https) from sensitive or internal domains. NOT the label word 'URL' itself. Do not flag generic public URLs."
+    policy: [hipaa]
+    enabled: true
+    priority: 3
+    confidence_threshold: 0.80
+    patterns:
+      - '(https?://\S+)'
+    masking:
+      strategy: redact
+      format: "[URL {n}]"
+
+# ── #15  IP addresses ─────────────────────────────────────────────────────────
+
+  - id: ip_address
+    display_name: IP Address
+    description: "Flag only the actual IP value in format NNN.NNN.NNN.NNN or IPv6 (e.g. 192.168.1.105). NOT the label word 'IP' or 'IP Address' itself."
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    presidio_type: IP_ADDRESS
+    masking:
+      strategy: redact
+      format: "[IP ADDRESS {n}]"
+
+# ── #16 & #17  Biometric identifiers / full-face photographs ─────────────────
+
+  - id: biometric_facial_recognition
+    display_name: Biometric — Facial Recognition / Photograph
+    description: "Facial recognition data, face scan, facial feature descriptors, or full-face patient photographs"
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    gliner_label: "facial recognition or face scan data"
+    masking:
+      strategy: redact
+      format: "[BIOMETRIC FACE {n}]"
+
+  - id: biometric_voiceprint
+    display_name: Biometric — Voiceprint
+    description: "Voice recognition data or voiceprint identifiers"
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    gliner_label: "voiceprint or voice recognition data"
+    masking:
+      strategy: redact
+      format: "[BIOMETRIC VOICE {n}]"
+
+  - id: biometric_iris_scan
+    display_name: Biometric — Iris Scan
+    description: "Iris scan or retina scan data"
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    gliner_label: "iris scan or retina scan"
+    masking:
+      strategy: redact
+      format: "[BIOMETRIC IRIS {n}]"
+
+  - id: biometric_dna
+    display_name: Biometric — DNA Information
+    description: "DNA profile, genetic data, or genomic information"
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    gliner_label: "DNA profile or genetic information"
+    masking:
+      strategy: redact
+      format: "[BIOMETRIC DNA {n}]"
+
+  - id: fingerprint
+    display_name: Fingerprint Data
+    description: "Fingerprint or palm print biometric data"
+    policy: [hipaa]
+    enabled: true
+    priority: 1
+    gliner_label: "fingerprint or palm print data"
+    masking:
+      strategy: redact
+      format: "[FINGERPRINT {n}]"
+
+# ── #18  Any other unique identifying number ──────────────────────────────────
+
+  - id: organization_name
+    display_name: Company / Organization Name
+    description: "Company, business, or organization name only. Do NOT flag city names, state names, country names, or geographic locations."
+    policy: [hipaa]
+    enabled: true
+    priority: 4
+    confidence_threshold: 0.90
+    presidio_type: ORG
+    patterns:
+      - '^([A-Z][A-Z ,&.]{5,},?\s*INC\.?)$'
+      - '^([A-Z][A-Z ,&.]{5,}\s+LLC\.?)$'
+      - '^([A-Z][A-Z ,&.]{5,}\s+(?:CORP(?:ORATION)?|LTD)\.?)$'
+      - '^([A-Z][A-Z &.]{5,}\s+(?:CITY\s+)?(?:GENERAL\s+)?(?:MEMORIAL\s+)?HOSPITAL)$'
+      - '^([A-Z][A-Z &.]{5,}\s+HEALTH\s+SYSTEM)$'
+      - '^([A-Z][A-Z &.]{5,}\s+MEDICAL\s+CENTER)$'
+      - '^([A-Z][A-Z &.]{5,}\s+(?:PATHOLOGY|DIAGNOSTIC|RADIOLOGY)\s+(?:ASSOCIATES|CLINIC|CENTER))$'
+      - '\b((?:(?-i:[A-Z])[A-Za-z]+[ \t]+){1,4}(?:Memorial(?:[ \t]+Hospital)?|Medical[ \t]+Center|General[ \t]+Hospital|Health[ \t]+System|University[ \t]+Hospital))\b'
+    masking:
+      strategy: redact
+      format: "[COMPANY {n}]"
+
+  - id: signature
+    display_name: Signature
+    description: "Electronic or physical signature reference"
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    gliner_label: "electronic or physical signature"
+    masking:
+      strategy: redact
+      format: "[SIGNATURE {n}]"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PCI-DSS v4.0 — Cardholder Data & Sensitive Authentication Data
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Cardholder Data ───────────────────────────────────────────────────────────
+
+  - id: credit_card_number
+    display_name: Credit / Debit Card Number (PAN)
+    description: "Primary Account Number (PAN). Example: 4111 1111 1111 1111"
+    policy: [pci_dss]
+    enabled: true
+    priority: 1
+    presidio_type: CREDIT_CARD
+    patterns:
+      - '\b(\d{4}[-\s]\d{4}[-\s]\d{4}[-\s]\d{4})\b'
+    masking:
+      strategy: redact
+      format: "[CARD NUMBER {n}]"
+
+  - id: card_holder_name
+    display_name: Card Holder Name
+    description: "Name physically printed on a credit or debit card. Only flag when immediately adjacent to a card number or CVV. Do NOT flag physicians, patients, employees, or any other person names."
+    policy: [pci_dss]
+    enabled: false
+    priority: 2
+    masking:
+      strategy: redact
+      format: "[PERSON {n}]"
+
+  - id: card_expiration_date
+    display_name: Card Expiry MM/YY (two-digit year, no day)
+    description: "Credit/debit card expiry date in MM/YY format ONLY — exactly 2 digits slash 2 digits (e.g. '09/27', '03/26'). Never flag 3-part dates with a day and 4-digit year like '03/14/2025' — those are clinical dates."
+    policy: [pci_dss]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(?:Expiry|Exp(?:iration)?)\s*(?:Date\s*)?[:#]?\s*(\d{2}/\d{2})\b'
+    masking:
+      strategy: redact
+      format: "[CARD EXP {n}]"
+
+  - id: card_service_code
+    display_name: Card Service Code / CVV / CVC
+    description: "Card verification value (CVV, CVC, CVV2, CAV2, CID) or 3-digit magnetic stripe service code"
+    policy: [pci_dss]
+    enabled: true
+    priority: 1
+    confidence_threshold: 0.70
+    patterns:
+      - 'CVV2?\s*[:#]?\s*(\d{3,4})'
+      - 'CVC\s*[:#]?\s*(\d{3,4})'
+      - 'CAV2?\s*[:#]?\s*(\d{3,4})'
+      - 'CID\s*[:#]?\s*(\d{3,4})'
+      - 'Security\s+Code\s*[:#]?\s*(\d{3,4})'
+    masking:
+      strategy: redact
+      format: "[CVV {n}]"
+
+# ── Sensitive Authentication Data ─────────────────────────────────────────────
+
+  - id: card_track_data
+    display_name: Card Track Data (Magnetic Stripe)
+    description: "Full magnetic stripe track data. Track 1 starts with %B followed by PAN and cardholder name. Track 2 starts with semicolon followed by PAN. PCI-DSS SAD."
+    policy: [pci_dss]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(%B\d{13,19}\^[^\^]{1,26}\^\d{4}[^\?]*\?)'
+      - '(;\d{13,19}=\d{4}[^?]*\?)'
+    masking:
+      strategy: redact
+      format: "[CARD TRACK {n}]"
+
+  - id: card_pin
+    display_name: Card PIN / PIN Block
+    description: "Payment card PIN or encrypted PIN block. Flag the value near keyword: PIN, PIN Block. PCI-DSS SAD."
+    policy: [pci_dss]
+    enabled: true
+    priority: 1
+    confidence_threshold: 0.70
+    patterns:
+      - '\bPIN\s+Block\s*[:#]?\s*([A-Fa-f0-9]{16,})\b'
+      - '\bPIN\s*[:#]\s*(\d{4,6})\b'
+    masking:
+      strategy: redact
+      format: "[CARD PIN {n}]"
+
+  - id: card_cryptogram
+    display_name: Card Cryptogram / Dynamic Auth Value
+    description: "EMV chip cryptogram or dynamic authentication value generated per-transaction. Detect near keywords: Cryptogram, ARQC, TC, AAC, Dynamic Auth."
+    policy: [pci_dss]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(?:ARQC|TC\b|AAC|Cryptogram|Dynamic\s+Auth(?:entication)?(?:\s+Value)?)\s*[:#]?\s*([A-Fa-f0-9]{8,16})\b'
+    masking:
+      strategy: redact
+      format: "[CRYPTOGRAM {n}]"
+
+  - id: card_iin_bin
+    display_name: Card IIN / BIN (Issuer Identification Number)
+    description: "Issuer Identification Number — first 6-8 digits of a PAN. PCI-DSS protected when stored separately. Detect near keywords: IIN, BIN, Issuer Number."
+    policy: [pci_dss]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:IIN|BIN|Issuer\s+(?:Identification\s+)?Number)\s*[:#]?\s*(\d{6,8})\b'
+    masking:
+      strategy: redact
+      format: "[IIN {n}]"
+
+# ── Financial Account Identifiers (PCI-DSS + HIPAA #10) ──────────────────────
+
+  - id: bank_account_number
+    display_name: Bank Account Number
+    description: "Detect based on keyword: Bank Account Number, Account Number, Checking Account, Savings Account"
+    policy: [pci_dss, hipaa]
+    enabled: true
+    priority: 1
+    presidio_type: US_BANK_NUMBER
+    masking:
+      strategy: redact
+      format: "[BANK ACCOUNT {n}]"
+
+  - id: bank_routing_number
+    display_name: Bank Routing Number
+    description: "Flag only the 9-digit numeric value (e.g. 021000021) near keywords: Routing Number, ABA Number. NOT the label 'Routing Number' itself."
+    policy: [pci_dss, hipaa]
+    enabled: true
+    priority: 1
+    patterns:
+      - 'Routing\s+(?:Number|No)\s*[:#]?\s*(\d{9})'
+      - 'ABA\s+(?:Number|No)\s*[:#]?\s*(\d{9})'
+    masking:
+      strategy: redact
+      format: "[ROUTING NUMBER {n}]"
+
+  - id: iban
+    display_name: IBAN
+    description: "Flag only the actual IBAN value starting with 2-letter country code + digits (e.g. GB29NWBK60161331926819). NOT the label word 'IBAN' itself."
+    policy: [pci_dss, hipaa]
+    enabled: true
+    priority: 1
+    presidio_type: IBAN_CODE
+    masking:
+      strategy: redact
+      format: "[IBAN {n}]"
+
+  - id: swift_bic_code
+    display_name: SWIFT / BIC Code
+    description: "SWIFT Bank Identifier Code (8 or 11 chars: 4 bank code + 2 country + 2 location + optional 3 branch). Example: CHASUS33, BNPAFRPPPAR. Detect near keywords: SWIFT, BIC, SWIFT Code, BIC Code."
+    policy: [pci_dss]
+    enabled: true
+    priority: 1
+    patterns:
+      - '\b(?:SWIFT|BIC)\b\s*(?:Code)?\s*[:#]?\s*([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b'
+    masking:
+      strategy: redact
+      format: "[SWIFT {n}]"
+
+# ── Transaction / Merchant Identifiers ────────────────────────────────────────
+
+  - id: merchant_id
+    display_name: Merchant ID (MID)
+    description: "Merchant identifier assigned by the payment processor. Detect near keyword: Merchant ID, MID. Example: MID-88234001"
+    policy: [pci_dss]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:Merchant\s+ID|MID)\s*[:#]?\s*([A-Za-z0-9\-]{4,20})\b'
+    masking:
+      strategy: redact
+      format: "[MERCHANT ID {n}]"
+
+  - id: terminal_id
+    display_name: Terminal ID (TID)
+    description: "POS terminal identifier assigned by the acquirer. Detect near keyword: Terminal ID, TID. Example: TID-44120099"
+    policy: [pci_dss]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:Terminal\s+ID|TID)\s*[:#]?\s*([A-Za-z0-9\-]{4,20})\b'
+    masking:
+      strategy: redact
+      format: "[TERMINAL ID {n}]"
+
+  - id: transaction_id
+    display_name: Transaction ID
+    description: "Payment transaction identifier. Detect near keyword: Transaction ID, TXN, Transaction No. Example: TXN-20240508-00123"
+    policy: [pci_dss]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:Transaction\s+(?:ID|No)|TXN)\s*[:#]?\s*([A-Za-z0-9\-]{4,30})\b'
+    masking:
+      strategy: redact
+      format: "[TRANSACTION ID {n}]"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GENERAL PII — Credentials, Sensitive Attributes, Educational Records
+# ══════════════════════════════════════════════════════════════════════════════
+
+  - id: password
+    display_name: Password
+    description: "User passwords, PINs, passphrases, and secret keys"
+    policy: [general]
+    enabled: true
+    priority: 1
+    gliner_label: "password or secret passphrase"
+    patterns:
+      - '(?:password|passwd|pwd|pass)\s*[:#=]\s*(\S{4,128})'
+      - '(?:passphrase|secret[\s_]key)\s*[:#=]\s*(\S{4,128})'
+    masking:
+      strategy: redact
+      format: "[PASSWORD {n}]"
+
+  - id: username
+    display_name: Username / User ID
+    description: "Detect based on keyword: username, userid, user id, login. Only flag when contextually tied to a password or authentication context"
+    policy: [general]
+    enabled: true
+    priority: 3
+    gliner_label: "username or login ID"
+    patterns:
+      - '(?:username|user[\s_]id|userid|login)\s*[:#=]\s*(\S{1,64})'
+    masking:
+      strategy: redact
+      format: "[USERNAME {n}]"
+
+  - id: confidential
+    display_name: Confidential Data
+    description: "Content explicitly marked as sensitive. Detect based on keyword: CONFIDENTIAL, SENSITIVE, TOP SECRET, RESTRICTED"
+    policy: [general]
+    enabled: true
+    priority: 1
+    gliner_label: "confidential or top secret information"
+    patterns:
+      - '\b(CONFIDENTIAL|TOP\s+SECRET|RESTRICTED|SENSITIVE\s+PII)\b'
+    masking:
+      strategy: redact
+      format: "[CONFIDENTIAL {n}]"
+
+  - id: cookie_session_token
+    display_name: Session Token / API Key / JWT
+    description: "Authentication tokens, session cookies, JWT tokens, API keys, access tokens, bearer tokens"
+    policy: [general]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(eyJ[A-Za-z0-9_\-]+(?:\.[A-Za-z0-9_\-]+){2})'
+      - '(sk-[A-Za-z0-9_\-]{10,})'
+      - '(?:API\s+Key|API\s+Token|Session\s+Token|Bearer\s+Token|Access\s+Token)\s*[:#]?\s*([A-Za-z0-9_\-\.]{10,})'
+    masking:
+      strategy: redact
+      format: "[TOKEN {n}]"
+
+  - id: racial_ethnic_origin
+    display_name: Racial or Ethnic Origin
+    description: "References to a person's racial or ethnic background"
+    policy: [general]
+    enabled: true
+    priority: 3
+    gliner_label: "racial or ethnic background"
+    masking:
+      strategy: redact
+      format: "[RACE ETHNICITY {n}]"
+
+  - id: physical_characteristics
+    display_name: Physical Characteristics / Description
+    description: "Descriptive physical characteristics of a person: height value, weight value, hair color, eye color, identifying marks. NOT the field labels 'Height' or 'Weight' themselves."
+    policy: [general]
+    enabled: true
+    priority: 3
+    gliner_label: "physical description: height, weight, hair color, eye color, identifying marks"
+    masking:
+      strategy: redact
+      format: "[PHYSICAL DESC {n}]"
+
+  - id: race
+    display_name: Race
+    description: "Reference to a person's race"
+    policy: [general]
+    enabled: true
+    priority: 3
+    gliner_label: "person's race"
+    masking:
+      strategy: redact
+      format: "[RACE {n}]"
+
+  - id: religion
+    display_name: Religion
+    description: "Reference to a person's religious beliefs or affiliation"
+    policy: [general]
+    enabled: true
+    priority: 3
+    confidence_threshold: 0.95
+    gliner_label: "religious beliefs or affiliation"
+    masking:
+      strategy: redact
+      format: "[RELIGION {n}]"
+
+  - id: employment_history
+    display_name: Employment History
+    description: "Past or current employer details, job titles, work history"
+    policy: [general]
+    enabled: true
+    priority: 3
+    gliner_label: "employer name, job title, or work history"
+    masking:
+      strategy: redact
+      format: "[EMPLOYMENT HISTORY {n}]"
+
+  - id: performance_evaluation
+    display_name: Performance Evaluation
+    description: "Employee performance review data, ratings, or appraisal notes"
+    policy: [general]
+    enabled: true
+    priority: 3
+    gliner_label: "performance review rating or appraisal"
+    masking:
+      strategy: redact
+      format: "[PERFORMANCE EVAL {n}]"
+
+  - id: student_records_ferpa
+    display_name: Student Records (FERPA)
+    description: "Educational records protected under FERPA: grades, transcripts, enrollment data"
+    policy: [general]
+    enabled: true
+    priority: 2
+    gliner_label: "student grades, transcript, or enrollment record"
+    masking:
+      strategy: redact
+      format: "[STUDENT RECORD {n}]"
+
+  - id: state_id_number
+    display_name: State ID Number
+    description: "State-issued ID number. Detect based on keyword: State ID, State Identification Number"
+    policy: [general]
+    enabled: true
+    priority: 1
+    patterns:
+      - 'State\s+ID\s*[:#]?\s*([A-Za-z0-9\-]{4,15})'
+      - 'State\s+Identification\s+(?:Number|No)\s*[:#]?\s*([A-Za-z0-9\-]{4,15})'
+    masking:
+      strategy: redact
+      format: "[STATE ID {n}]"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LAW ENFORCEMENT / CRIMINAL JUSTICE (CJIS)
+# ══════════════════════════════════════════════════════════════════════════════
+
+  - id: fbi_number
+    display_name: FBI Number
+    description: "FBI identification number. Detect based on keyword: FBI Number, FBI #"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    patterns:
+      - 'FBI\s+(?:Number|No|#|ID)\s*[:#]?\s*([A-Za-z0-9]{4,12})'
+    masking:
+      strategy: redact
+      format: "[FBI NUMBER {n}]"
+
+  - id: chri
+    display_name: Criminal History Record Information (CHRI)
+    description: "Criminal history record information. Detect based on keyword: CHRI, criminal history, rap sheet"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    gliner_label: "criminal history record"
+    patterns:
+      - '\b(CHRI)\b'
+      - '(?:criminal\s+history|rap\s+sheet)\s*(?:record|number|no\.?|#)?\s*[:#]?\s*([A-Z0-9\-]{3,20})'
+    masking:
+      strategy: redact
+      format: "[CHRI {n}]"
+
+  - id: arrest_record
+    display_name: Arrest Record
+    description: "Flag the booking ID, arrest details, or case reference value. NOT the label word 'Arrest Record' itself."
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    patterns:
+      - 'Arrest\s+Record\s*[:#]\s*(.+)'
+      - '(?:Booked|Arrested)\s+(?:on\s+)?(\d{4}-\d{2}-\d{2}[^\n]*)'
+    masking:
+      strategy: redact
+      format: "[ARREST RECORD {n}]"
+
+  - id: case_number
+    display_name: Case Number
+    description: "Flag only the actual case ID value (e.g. CR-2024-00445) near keywords: Case Number, Case #, Docket. NOT the label 'Case Number' itself."
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    patterns:
+      - 'Case\s+(?:Number|No)\s*[:#]?\s*([A-Za-z0-9\-]{4,20})'
+      - 'Docket\s+(?:Number|No)\s*[:#]?\s*([A-Za-z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[CASE NUMBER {n}]"
+
+  - id: warrant_data
+    display_name: Warrant Data
+    description: "Arrest or search warrant information. Detect based on keyword: warrant, warrant number, arrest warrant"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    gliner_label: "arrest warrant or search warrant number"
+    patterns:
+      - '(?:warrant\s+(?:number|no\.?|#)|arrest\s+warrant\s+#?)\s*[:#]?\s*([A-Z0-9\-\/]{4,20})'
+    masking:
+      strategy: redact
+      format: "[WARRANT {n}]"
+
+  - id: incident_report
+    display_name: Incident Report
+    description: "Police or incident report number or data. Detect based on keyword: incident report, report number, IR#"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "police incident report number"
+    patterns:
+      - '(?:incident\s+report|IR)\s*#\s*([A-Z0-9\-]{4,20})'
+      - '(?:report\s+(?:number|no\.?|#))\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[INCIDENT REPORT {n}]"
+
+  - id: incarceration_info
+    display_name: Incarceration Information
+    description: "Incarceration or detention details. Detect based on keyword: inmate number, booking number, incarcerated, jail ID"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    patterns:
+      - 'Inmate\s+ID\s*[:#]?\s*(\d{4,10})'
+      - 'Booking\s+(?:Number|No)\s*[:#]?\s*(\d{4,10})'
+      - 'Jail\s+ID\s*[:#]?\s*([A-Za-z0-9\-]{4,12})'
+    masking:
+      strategy: redact
+      format: "[INCARCERATION {n}]"
+
+  - id: missing_person_report
+    display_name: Missing Person Report
+    description: "Missing person report or record. Detect based on keyword: missing person, NCIC missing"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "missing person report"
+    patterns:
+      - '(?:missing\s+person|NCIC\s+missing)\s*(?:report|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[MISSING PERSON {n}]"
+
+  - id: wanted_person_report
+    display_name: Wanted Person Report
+    description: "Wanted person or fugitive record. Detect based on keyword: wanted person, fugitive, NCIC wanted"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    gliner_label: "wanted person or fugitive record"
+    patterns:
+      - '(?:wanted\s+person|NCIC\s+wanted|fugitive)\s*(?:report|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[WANTED PERSON {n}]"
+
+  - id: sex_offender_report
+    display_name: Sex Offender Report
+    description: "Sex offender registration record. Detect based on keyword: sex offender, SORA, registered offender"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    gliner_label: "sex offender registration record"
+    patterns:
+      - '(?:sex\s+offender|SORA|registered\s+offender)\s*(?:registration|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[SEX OFFENDER {n}]"
+
+  - id: protection_orders
+    display_name: Protection Orders
+    description: "Restraining order or protection order data. Detect based on keyword: restraining order, protection order, TRO"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    gliner_label: "restraining order or protection order"
+    patterns:
+      - '(?:restraining\s+order|protection\s+order|\bTRO\b)\s*(?:#|number|no\.?)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[PROTECTION ORDER {n}]"
+
+  - id: foreign_fugitives
+    display_name: Foreign Fugitives Record
+    description: "Foreign fugitive or international warrant record. Detect based on keyword: foreign fugitive, Interpol, extradition"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    gliner_label: "foreign fugitive or Interpol record"
+    patterns:
+      - '(?:foreign\s+fugitive|Interpol|extradition)\s*(?:number|#|no\.?)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[FOREIGN FUGITIVE {n}]"
+
+  - id: identity_theft_victims
+    display_name: Identity Theft Victim Record
+    description: "Identity theft victim report or record. Detect based on keyword: identity theft, ID theft victim"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    gliner_label: "identity theft victim report"
+    patterns:
+      - '(?:identity\s+theft|ID\s+theft\s+victim)\s*(?:report|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[ID THEFT VICTIM {n}]"
+
+  - id: gang_terrorist_member
+    display_name: Gang / Terrorist Member Record
+    description: "Gang membership or terrorist watchlist record. Detect based on keyword: gang member, terrorist, watchlist"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 1
+    gliner_label: "gang membership or terrorist watchlist"
+    patterns:
+      - '(?:gang\s+member(?:ship)?|terrorist\s+watchlist|watchlist\s+(?:entry|record))\s*(?:#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[GANG TERRORIST {n}]"
+
+  - id: supervised_release
+    display_name: Supervised Release Record
+    description: "Supervised release or post-conviction supervision record. Detect based on keyword: supervised release, supervision record"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "supervised release or post-conviction supervision"
+    patterns:
+      - '(?:supervised\s+release|supervision\s+record)\s*(?:#|number|no\.?)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[SUPERVISED RELEASE {n}]"
+
+  - id: probation_record
+    display_name: Probation Record
+    description: "Probation record or probation officer data. Detect based on keyword: probation, probation officer, probation number"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "probation record or probation number"
+    patterns:
+      - '(?:probation\s+(?:number|no\.?|#)|probation\s+record)\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[PROBATION {n}]"
+
+  - id: parole_record
+    display_name: Parole Record
+    description: "Parole record or parole board data. Detect based on keyword: parole, parole officer, parole number"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "parole record or parole number"
+    patterns:
+      - '(?:parole\s+(?:number|no\.?|#)|parole\s+record)\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[PAROLE {n}]"
+
+  - id: stolen_vehicle
+    display_name: Stolen Vehicle Record
+    description: "Stolen vehicle report. Detect based on keyword: stolen vehicle, stolen car, NCIC stolen vehicle"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "stolen vehicle report"
+    patterns:
+      - '(?:stolen\s+vehicle|stolen\s+car|NCIC\s+stolen)\s*(?:report|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[STOLEN VEHICLE {n}]"
+
+  - id: stolen_guns
+    display_name: Stolen Guns Record
+    description: "Stolen firearm report. Detect based on keyword: stolen gun, stolen firearm, NCIC firearm"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "stolen firearm or stolen gun report"
+    patterns:
+      - '(?:stolen\s+(?:gun|firearm)|NCIC\s+firearm)\s*(?:report|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[STOLEN GUNS {n}]"
+
+  - id: stolen_license_plate
+    display_name: Stolen License Plate
+    description: "Stolen license plate report. Detect based on keyword: stolen plate, stolen license plate"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "stolen license plate"
+    patterns:
+      - '(?:stolen\s+(?:plate|license\s+plate))\s*(?:#|number)?\s*[:#]?\s*([A-Z0-9\-]{3,10})'
+    masking:
+      strategy: redact
+      format: "[STOLEN PLATE {n}]"
+
+  - id: stolen_boats
+    display_name: Stolen Boats Record
+    description: "Stolen boat or watercraft report. Detect based on keyword: stolen boat, stolen vessel"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "stolen boat or vessel report"
+    patterns:
+      - '(?:stolen\s+(?:boat|vessel|watercraft))\s*(?:report|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[STOLEN BOAT {n}]"
+
+  - id: stolen_securities
+    display_name: Stolen Securities Record
+    description: "Stolen financial securities report. Detect based on keyword: stolen securities, stolen bonds, stolen stocks"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "stolen financial securities report"
+    patterns:
+      - '(?:stolen\s+(?:securities|bonds|stocks))\s*(?:report|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[STOLEN SECURITIES {n}]"
+
+  - id: stolen_articles
+    display_name: Stolen Articles Record
+    description: "Stolen property or articles report. Detect based on keyword: stolen property, stolen articles, stolen goods"
+    policy: [law_enforcement]
+    enabled: true
+    priority: 2
+    gliner_label: "stolen property or stolen articles report"
+    patterns:
+      - '(?:stolen\s+(?:property|articles|goods))\s*(?:report|#|number)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[STOLEN ARTICLES {n}]"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TRANSPORTATION — Vehicle, Driver, and Transit-Specific Identifiers
+# ══════════════════════════════════════════════════════════════════════════════
+
+  - id: driver_history
+    display_name: Driver History Record
+    description: "Driver history, driving record, or DMV record. Detect based on keyword: driving record, driver history, DMV record"
+    policy: [transportation]
+    enabled: true
+    priority: 2
+    gliner_label: "driving record or DMV record"
+    patterns:
+      - '(?:driving\s+record|driver\s+history|DMV\s+record)\s*(?:#|number|no\.?)?\s*[:#]?\s*([A-Z0-9\-]{4,20})'
+    masking:
+      strategy: redact
+      format: "[DRIVER HISTORY {n}]"
+
+  - id: bart_employee_id
+    display_name: BART Employee ID
+    description: "BART employee identification number — 5 or 6 digit number. Detect based on keyword: Employee ID, BART Employee ID, Emp ID"
+    policy: [transportation]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(?:BART\s+)?Employee\s+ID\s*[:#]?\s*(\d{4,8})'
+      - 'Emp(?:loyee)?\s*(?:ID|No)\s*[:#]?\s*(\d{4,8})'
+    masking:
+      strategy: redact
+      format: "[BART EMP ID {n}]"
+
+# =============================================================================
+# GENERAL PII — Financial, Employment, Travel, Education, Legal
+# =============================================================================
+
+  - id: financial_amount
+    display_name: Transaction / Financial Amount
+    description: "Dollar or currency amount in a financial transaction, payment, or account context. Example: '$12,450', '$18,700.00', '$219.96'."
+    policy: [general]
+    enabled: true
+    priority: 3
+    patterns:
+      - '(\$\s*[\d,]+(?:\.\d{1,2})?)'
+      - '(\d{1,3}(?:,\d{3})+(?:\.\d{2})?)\s*(?:USD|dollars?)\b'
+    masking:
+      strategy: redact
+      format: "[AMOUNT {n}]"
+
+  - id: card_type
+    display_name: Payment Card Brand (Visa / Mastercard / Amex / Discover only)
+    description: "Payment card network brand ONLY: Visa, Mastercard, American Express, Discover, JCB, UnionPay. Do NOT flag automobile brands, clothing brands, or any non-payment-card brands."
+    policy: [pci_dss]
+    enabled: true
+    priority: 3
+    patterns:
+      - '\b(Visa|Mastercard|Master\s*Card|American\s+Express|AmEx|AMEX|Discover|JCB|UnionPay)\b'
+    masking:
+      strategy: redact
+      format: "[CARD TYPE {n}]"
+
+  - id: card_last4
+    display_name: Card Last 4 Digits
+    description: "Last 4 digits of a payment card referenced as 'ending in XXXX' or 'last four digits XXXX'. Example: 'card ending in 8821', 'ending in 4451'."
+    policy: [pci_dss]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:card|account)\s+ending\s+in\s+(\d{4})'
+      - 'ending\s+in\s+(\d{4})'
+      - 'last\s+(?:four|4)\s+(?:digits?)?\s*[:#]?\s*(\d{4})'
+    masking:
+      strategy: redact
+      format: "[CARD LAST4 {n}]"
+
+  - id: employee_id
+    display_name: Employee ID / Staff Number
+    description: "Employee identification number. Example: 'EMP-77421', 'EMPID-12345'. Detect near keywords: Employee ID, Staff ID, EMP."
+    policy: [general]
+    enabled: true
+    priority: 1
+    patterns:
+      - '\bEMP-[A-Za-z0-9\-]{3,12}\b'
+      - '(?:Employee|Staff)\s+(?:ID|Number|No)\s*[:#=]?\s*(?:is\s+)?([A-Za-z0-9\-]{3,15})'
+    masking:
+      strategy: redact
+      format: "[EMPLOYEE ID {n}]"
+
+  - id: medication_name
+    display_name: Prescription Medication / Drug Name with Dosage
+    description: "Name of a prescribed medication, drug, or pharmaceutical treatment, typically with dosage. Example: 'Prednisone 20mg', 'Albuterol inhaler', 'Lisinopril 10mg daily', 'Metformin 500mg'."
+    policy: [hipaa]
+    enabled: true
+    priority: 3
+    gliner_label: "prescription medication name with dosage"
+    masking:
+      strategy: redact
+      format: "[MEDICATION {n}]"
+
+  - id: vehicle_registration
+    display_name: Vehicle Registration Number
+    description: "Vehicle registration or license plate number. Example: 'TX-98-AB-2211', 'CA 7ABC123'. Different from VIN."
+    policy: [general]
+    enabled: true
+    priority: 2
+    patterns:
+      - '\b([A-Z]{2}-\d{2,3}-[A-Z]{2}-\d{3,4})\b'
+      - '(?:License\s+Plate|Plate\s+No|Vehicle\s+Plate|Tag\s+No)\s*[:#]?\s*([A-Za-z0-9\-]{4,10})'
+    masking:
+      strategy: redact
+      format: "[VEHICLE NUMBER {n}]"
+
+  - id: student_id
+    display_name: Student ID Number
+    description: "Student identification number. Example: 'STU-551992'. Detect near keyword: Student ID."
+    policy: [general]
+    enabled: true
+    priority: 1
+    patterns:
+      - '\bSTU-[A-Za-z0-9\-]{3,12}\b'
+      - 'Student\s+(?:ID|Number|No)\s*[:#=]?\s*(?:is\s+)?([A-Za-z0-9\-]{3,15})'
+    masking:
+      strategy: redact
+      format: "[STUDENT ID {n}]"
+
+  - id: tax_id_number
+    display_name: Tax Identification Number / TIN / EIN
+    description: "Tax identification, employer identification, or individual taxpayer ID. Example: 'TAX-882119', 'TIN-123456789', 'EIN 12-3456789'."
+    policy: [general]
+    enabled: true
+    priority: 1
+    patterns:
+      - '\b(?:TAX(?:\s+ID)?|TIN|EIN)\b\s*[-:#]?\s*([A-Za-z0-9\-]{4,15})'
+      - 'Tax\s+(?:Identification|ID)\s+(?:Number|No)\s*[:#=]?\s*([A-Za-z0-9\-]{4,15})'
+      - '\b(\d{2}-\d{7})\b'
+    masking:
+      strategy: redact
+      format: "[TAX ID {n}]"
+
+  - id: flight_number
+    display_name: Flight Number
+    description: "Airline flight number. Example: 'AI-442', 'BA-117', 'AA 100'. Detect near keyword: flight, flt."
+    policy: [general]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:flight|flt\.?)\s+([A-Z]{2}[-\s]?\d{2,4})'
+    masking:
+      strategy: redact
+      format: "[FLIGHT NUMBER {n}]"
+
+  - id: booking_reference
+    display_name: Booking / Reservation Reference
+    description: "Hotel, flight, or travel booking reference number. Example: 'BK-771922', 'PNR: ABC123'. Detect near keyword: booking reference, reservation, PNR."
+    policy: [general]
+    enabled: true
+    priority: 2
+    patterns:
+      - '(?:BK|Booking\s+(?:Reference|Ref|ID|Number)|Reservation\s+(?:ID|Number)|PNR)\s*[-:#]?\s*([A-Za-z0-9\-]{4,15})'
+    masking:
+      strategy: redact
+      format: "[BOOKING ID {n}]"
+
+  - id: claim_number
+    display_name: Insurance Claim Number
+    description: "Insurance claim number. Example: 'CLM-882901'. Detect near keyword: claim number, claim ID."
+    policy: [general]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(?:CLM|Claim\s+(?:Number|No|ID))\s*[-:#]?\s*([A-Za-z0-9\-]{4,15})'
+    masking:
+      strategy: redact
+      format: "[CLAIM ID {n}]"
+
+  - id: application_id
+    display_name: Government Application / Reference Number
+    description: "Government or official application reference number. Example: 'GOV-551882', 'APP-12345'. Detect near keyword: application number, reference number, GOV."
+    policy: [general]
+    enabled: true
+    priority: 1
+    patterns:
+      - '(?:\bGOV\b|\bAPP\b)[-:#]\s*([A-Za-z0-9\-]{4,15})'
+      - '(?:Application\s+(?:Number|No|ID)|Reference\s+(?:Number|No|ID))\s*[-:#]?\s*([A-Za-z0-9\-]{4,15})'
+    masking:
+      strategy: redact
+      format: "[APPLICATION ID {n}]"
+
+# ── Organisation subtypes (more specific than organization_name) ──────────────
+
+  - id: hospital_name
+    display_name: Hospital / Medical Center / Clinic Name
+    description: "Name of a hospital, medical center, health system, clinic, or other healthcare facility. Example: 'Westside Medical Center', 'Valley Diagnostics Laboratory', 'Pacific Bay Medical Center'."
+    policy: [hipaa]
+    enabled: true
+    priority: 2
+    patterns:
+      - '\b((?:(?-i:[A-Z])[A-Za-z]+[ \t]+){1,5}(?:Medical[ \t]+Center|Hospital|Health[ \t]+System|Clinic|Medical[ \t]+Group|Healthcare|Diagnostics?[ \t]+(?:Lab(?:oratory)?|Center)|Radiology[ \t]+(?:Center|Associates)))\b'
+    masking:
+      strategy: redact
+      format: "[HOSPITAL {n}]"
+
+  - id: bank_name
+    display_name: Bank / Financial Institution Name
+    description: "Name of a bank, credit union, or financial institution. Example: 'City National Bank', 'Chase', 'Wells Fargo', 'Bank of America'."
+    policy: [pci_dss]
+    enabled: true
+    priority: 3
+    patterns:
+      - '\b((?:(?-i:[A-Z])[A-Za-z]+[ \t]+){1,4}(?:Bank|Credit[ \t]+Union|Financial|Savings|Trust|Bancorp))\b'
+      - '\b(Chase|Wells\s+Fargo|Citibank|Bank\s+of\s+America|HSBC|Barclays|TD\s+Bank|Capital\s+One|PNC|US\s+Bank|SunTrust|BB&T|Fidelity|Schwab|Vanguard)\b'
+    masking:
+      strategy: redact
+      format: "[BANK {n}]"
+
+  - id: insurance_company_name
+    display_name: Insurance Company Name
+    description: "Name of an insurance company or provider. Example: 'United Shield Insurance', 'Blue Cross Blue Shield', 'Aetna', 'UnitedHealth'."
+    policy: [general]
+    enabled: true
+    priority: 3
+    patterns:
+      - '\b((?:(?-i:[A-Z])[A-Za-z]+[ \t]+){1,4}(?:Insurance|Ins\.|Assurance|Mutual|Underwriters?))\b'
+      - '\b(Aetna|UnitedHealth(?:care)?|Cigna|Humana|Anthem|Blue\s+Cross|Blue\s+Shield|Kaiser|Molina|Centene|MetLife|Prudential|Allstate|State\s+Farm|GEICO|Progressive|Travelers)\b'
+    masking:
+      strategy: redact
+      format: "[INSURANCE COMPANY {n}]"
+
+  - id: university_name
+    display_name: University / College Name
+    description: "Name of a university, college, or academic institution. Example: 'Northern State University', 'MIT', 'Harvard University'."
+    policy: [general]
+    enabled: true
+    priority: 3
+    patterns:
+      - '\b((?:(?-i:[A-Z])[A-Za-z]+[ \t]+){1,5}(?:University|College|Institute[ \t]+of[ \t]+Technology|School[ \t]+of|Academy))\b'
+    masking:
+      strategy: redact
+      format: "[UNIVERSITY {n}]"
+
+  - id: law_firm_name
+    display_name: Law Firm / Legal Practice Name
+    description: "Name of a law firm, legal practice, or attorney's office. Example: 'Grant & Associates', 'Smith & Jones LLP'."
+    policy: [general]
+    enabled: true
+    priority: 3
+    patterns:
+      - '\b((?-i:[A-Z])[A-Za-z]*(?:[ \t]+(?:&[ \t]+)?(?-i:[A-Z])[A-Za-z]*){0,4}[ \t]+(?:LLP|LLC|Law[ \t]+(?:Firm|Group|Office|Practice)|Attorneys?[ \t]+at[ \t]+Law|&[ \t]+Associates))\b'
+    masking:
+      strategy: redact
+      format: "[LAW FIRM {n}]"
+
+  - id: court_name
+    display_name: Court / Judicial Body Name
+    description: "Name of a court or judicial body. Example: 'California Superior Court', 'US District Court', 'Family Court'."
+    policy: [general]
+    enabled: true
+    priority: 3
+    patterns:
+      - '\b((?:(?-i:[A-Z])[A-Za-z]+[ \t]+){1,4}(?:Superior[ \t]+Court|District[ \t]+Court|Circuit[ \t]+Court|Court[ \t]+of[ \t]+Appeals?|Supreme[ \t]+Court|Family[ \t]+Court|Municipal[ \t]+Court|Probate[ \t]+Court))\b'
+    masking:
+      strategy: redact
+      format: "[COURT {n}]"
+
+  - id: hotel_name
+    display_name: Hotel / Accommodation Name
+    description: "Name of a hotel, resort, or accommodation. Example: 'Grand Royal Hotel', 'Marriott Downtown', 'Hilton Garden Inn'."
+    policy: [general]
+    enabled: true
+    priority: 3
+    patterns:
+      - '\b((?:(?-i:[A-Z])[A-Za-z]+[ \t]+){1,4}(?:Hotel|Resort|Inn|Suites?|Lodge|Motel|Hostel|Bed[ \t]+and[ \t]+Breakfast))\b'
+      - '\b(Marriott|Hilton|Hyatt|Sheraton|Westin|IHG|Holiday\s+Inn|Best\s+Western|Radisson|Ritz[-\s]Carlton|Four\s+Seasons|Starwood)\b'
+    masking:
+      strategy: redact
+      format: "[HOTEL {n}]"

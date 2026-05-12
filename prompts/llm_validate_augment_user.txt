@@ -1,0 +1,12 @@
+## NER Candidate Detections
+{candidates_json}
+
+## Document
+---
+{text}
+---
+
+Review the candidates above and scan the document for any PII the NER missed.
+Return a JSON array only — no markdown, no explanation.
+Format: [{"entity_id": "...", "text": "...", "confidence": 0.0-1.0}]
+Empty result: []

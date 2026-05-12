@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Bright Masker</title>
+  <link rel="icon" href="/branding/logo.webp?v=4" type="image/webp" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-base: #f4f6f9;
+      --bg-elevated: #ffffff;
+      --bg-subtle: #f8fafc;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --text-secondary: #475569;
+      --text-muted: #64748b;
+      --text-faint: #94a3b8;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-soft: rgba(79, 70, 229, 0.1);
+      --accent-ring: rgba(79, 70, 229, 0.35);
+      --success: #059669;
+      --success-bg: #ecfdf5;
+      --success-border: #a7f3d0;
+      --danger: #dc2626;
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+      --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+      --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+      --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { -webkit-font-smoothing: antialiased; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      background-image:
+        radial-gradient(ellipse 120% 80% at 50% -20%, rgba(79, 70, 229, 0.09), transparent),
+        radial-gradient(ellipse 80% 50% at 100% 0%, rgba(14, 165, 233, 0.06), transparent);
+      color: var(--text-secondary);
+      min-height: 100vh;
+      padding: clamp(1.25rem, 4vw, 2.5rem) clamp(1rem, 3vw, 1.5rem) 3rem;
+      line-height: 1.5;
+    }
+
+    .container { max-width: 1040px; margin: 0 auto; }
+
+    /* ── Header ── */
+    .header { margin-bottom: 1.5rem; }
+    .header-row {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 1.25rem; flex-wrap: wrap;
+    }
+    .brand-block {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      flex: 1 1 280px;
+      min-width: 0;
+    }
+    .brand-top {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      flex-wrap: wrap;
+    }
+    .brand-mark-only {
+      height: 44px;
+      width: 44px;
+      object-fit: contain;
+      display: block;
+      flex-shrink: 0;
+    }
+    .brand-titles {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      min-width: 0;
+    }
+    .product-title {
+      font-size: clamp(1.35rem, 3.2vw, 1.75rem);
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin: 0;
+    }
+    .header-sub {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      max-width: 36rem;
+      line-height: 1.55;
+    }
+    .active-model-badge {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      border-radius: 999px;
+      padding: 0.45rem 1rem 0.45rem 0.65rem;
+      font-size: 0.8125rem; font-weight: 600;
+      white-space: nowrap; margin-top: 0.15rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .active-model-badge .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+      flex-shrink: 0;
+    }
+
+    /* ── Pipeline (stepper: nodes + connectors, parallel as one block) ── */
+    .flow-panel {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 0.85rem 1rem 1rem;
+      margin-bottom: 1.35rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .flow-panel-title {
+      font-size: 0.625rem;
+      font-weight: 700;
+      color: var(--text-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      margin-bottom: 0.85rem;
+      text-align: center;
+    }
+    .stepper-scroll {
+      width: 100%;
+      overflow-x: auto;
+      display: flex;
+      justify-content: center;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-strong) transparent;
+    }
+    .stepper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      flex-wrap: nowrap;
+      margin-inline: auto;
+      padding: 0.15rem 0.5rem 0.25rem;
+    }
+    .stepper-scroll::-webkit-scrollbar { height: 5px; }
+    .stepper-scroll::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 99px;
+    }
+    .stepper-node {
+      flex: 0 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      max-width: 6.5rem;
+      text-align: center;
+    }
+    .stepper-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid var(--bg-elevated);
+      box-shadow: 0 0 0 1px var(--border-strong);
+      flex-shrink: 0;
+    }
+    .stepper-dot--muted { background: #94a3b8; }
+    .stepper-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.25;
+    }
+    .stepper-sublabel {
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      line-height: 1.35;
+      max-width: 7rem;
+    }
+    .stepper-connector {
+      flex: 0 0 auto;
+      width: clamp(14px, 3vw, 36px);
+      min-width: 14px;
+      height: 3px;
+      background: #cbd5e1;
+      border-radius: 99px;
+      flex-shrink: 0;
+    }
+    .stepper-node--parallel {
+      max-width: 8rem;
+      padding: 0.5rem 0.65rem 0.45rem;
+      margin: -0.35rem 0;
+      border-radius: var(--radius-md);
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      box-shadow: none;
+    }
+    .stepper-node--parallel .stepper-dot { display: none; }
+    .stepper-parallel-rows {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.35rem;
+      width: 100%;
+    }
+    .stepper-parallel-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      justify-content: flex-start;
+    }
+    .stepper-parallel-row .mini-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+    .stepper-parallel-row:nth-child(2) .mini-dot { background: #7c3aed; }
+    .stepper-parallel-row .stepper-label {
+      font-size: 0.72rem;
+      text-align: left;
+    }
+    .stepper-parallel-tag {
+      font-size: 0.5625rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+      text-align: center;
+      width: 100%;
+    }
+
+    /* ── Section title ── */
+    .section-title {
+      font-size: 0.6875rem; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.1em;
+      margin-bottom: 1rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .section-title::after {
+      content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--border), transparent);
+      max-width: 120px;
+    }
+
+    /* ── Model selector ── */
+    .model-selector {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.35rem 1.5rem 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .model-cards {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
+    }
+    @media (max-width: 900px) { .model-cards { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 540px) { .model-cards { grid-template-columns: 1fr; } }
+
+    .model-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 1.1rem 1.15rem; cursor: pointer;
+      transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s, background 0.2s;
+      position: relative; background: var(--bg-subtle);
+      user-select: none;
+    }
+    .model-card:hover {
+      border-color: #a5b4fc;
+      background: var(--bg-elevated);
+      box-shadow: var(--shadow-md);
+      transform: translateY(-1px);
+    }
+    .model-card.active {
+      border-color: var(--accent);
+      background: linear-gradient(180deg, #fafaff 0%, #ffffff 100%);
+      box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-md);
+    }
+    .model-card.switching { opacity: 0.55; pointer-events: none; }
+
+    .model-card--disabled {
+      cursor: not-allowed;
+      pointer-events: none;
+      opacity: 0.78;
+    }
+    .model-card--disabled:hover {
+      border-color: var(--border);
+      background: var(--bg-subtle);
+      box-shadow: none;
+      transform: none;
+    }
+    .model-card--disabled.active,
+    .model-card--disabled.active:hover {
+      border-color: var(--border);
+      background: var(--bg-subtle);
+      box-shadow: none;
+      transform: none;
+    }
+    .model-card--disabled .model-check { opacity: 0.4; }
+    .model-card--disabled.active .model-check {
+      background: transparent;
+      border-color: var(--border-strong);
+      color: inherit;
+    }
+    .model-card--disabled.active .model-check svg { display: none; }
+    .model-na-hint {
+      margin-top: 0.65rem;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--text-faint);
+      text-align: center;
+      padding: 0.35rem 0.5rem;
+      border-radius: var(--radius-sm);
+      background: var(--bg-elevated);
+      border: 1px dashed var(--border-strong);
+    }
+    .model-card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.55rem; }
+    .model-check {
+      width: 20px; height: 20px; border-radius: 50%;
+      border: 2px solid var(--border-strong);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: all 0.2s;
+    }
+    .model-card.active .model-check {
+      background: var(--accent); border-color: var(--accent); color: #fff;
+    }
+    .model-check svg { display: none; }
+    .model-card.active .model-check svg { display: block; }
+
+    .provider-badge {
+      font-size: 0.625rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+    }
+    .provider-openrouter { background: #ede9fe; color: #5b21b6; }
+    .provider-local      { background: #d1fae5; color: #047857; }
+
+    .model-name { font-size: 0.9375rem; font-weight: 700; color: var(--text); margin-bottom: 0.3rem; line-height: 1.35; }
+    .model-desc { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem; line-height: 1.5; }
+
+    .model-attrs { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .model-attr {
+      font-size: 0.6875rem; font-weight: 600; padding: 0.22rem 0.6rem;
+      border-radius: 999px; border: 1px solid transparent;
+    }
+    .attr-speed-fast   { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    .attr-speed-medium { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+    .attr-speed-slow   { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .attr-free  { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    .attr-paid  { background: var(--bg-subtle); color: var(--text-muted); border-color: var(--border); }
+    .attr-priv  { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+
+    .model-switch-status {
+      font-size: 0.8125rem; color: var(--accent);
+      margin-top: 0.85rem; min-height: 1.25rem; font-weight: 500;
+    }
+    .model-switch-status.error { color: var(--danger); }
+
+    /* ── Card ── */
+    .card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 1.5rem 1.6rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--shadow-sm);
+    }
+    .card-title {
+      font-size: 0.6875rem; font-weight: 700; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 0.85rem;
+    }
+
+    /* ── Input ── */
+    textarea {
+      width: 100%; min-height: 140px;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      color: var(--text); font-size: 0.9375rem;
+      padding: 1rem 1.1rem;
+      resize: vertical; outline: none; font-family: inherit;
+      line-height: 1.65;
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    }
+    textarea::placeholder { color: var(--text-faint); }
+    textarea:hover { border-color: var(--border-strong); }
+    textarea:focus {
+      border-color: var(--accent);
+      background: var(--bg-elevated);
+      box-shadow: 0 0 0 4px var(--accent-soft);
+    }
+
+    .actions {
+      display: flex; flex-wrap: wrap; gap: 0.75rem;
+      margin-top: 1.1rem; align-items: center;
+    }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem;
+      padding: 0.65rem 1.35rem; border: none; border-radius: var(--radius-sm);
+      font-size: 0.875rem; font-weight: 600; font-family: inherit;
+      cursor: pointer; transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+    }
+    .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .btn-primary {
+      background: var(--accent); color: #fff;
+      box-shadow: 0 1px 2px rgba(79, 70, 229, 0.25);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+    }
+    .btn-primary:active:not(:disabled) { transform: translateY(1px); }
+    .btn-ghost {
+      background: var(--bg-subtle); color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover:not(:disabled) { background: var(--border); color: var(--text); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .kbd-hint {
+      font-size: 0.6875rem; font-weight: 500; color: var(--text-faint);
+      margin-left: auto;
+    }
+    @media (max-width: 520px) { .kbd-hint { width: 100%; margin-left: 0; margin-top: 0.25rem; } }
+    .error-msg { color: var(--danger); font-size: 0.8125rem; display: none; font-weight: 500; }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 15px; height: 15px;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff; border-radius: 50%;
+      animation: spin 0.65s linear infinite; display: none;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+      padding: 0; margin-bottom: 1.35rem;
+      background: transparent; border: none;
+    }
+    .stat-chip {
+      display: inline-flex; align-items: baseline; gap: 0.35rem;
+      padding: 0.45rem 0.75rem;
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem; color: var(--text-muted);
+    }
+    .stat-chip strong { color: var(--text); font-weight: 600; font-size: 0.8125rem; }
+    .stat-chip .stat-label { color: var(--text-faint); font-weight: 500; font-size: 0.6875rem; }
+
+    /* ── Masked output ── */
+    .masked-output {
+      background: var(--success-bg);
+      border: 1px solid var(--success-border);
+      border-radius: var(--radius-md);
+      padding: 1rem 1.1rem;
+      font-size: 0.875rem; line-height: 1.75; white-space: pre-wrap;
+      word-break: break-word; min-height: 64px; color: #065f46;
+      font-family: var(--font-mono); font-weight: 450;
+    }
+
+    /* ── Table ── */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-subtle);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; background: var(--bg-elevated); }
+    thead { background: var(--bg-subtle); }
+    th {
+      text-align: left; padding: 0.65rem 0.85rem;
+      color: var(--text-muted); font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+    td { padding: 0.65rem 0.85rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #fafbfc; }
+    .original-val { color: var(--danger); font-family: var(--font-mono); font-size: 0.8125rem; font-weight: 450; }
+    .masked-val   { color: var(--success); font-family: var(--font-mono); font-size: 0.8125rem; font-weight: 450; }
+    .badge {
+      display: inline-block; padding: 0.2rem 0.55rem;
+      border-radius: 999px; font-size: 0.625rem; font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+    .badge-pattern { background: #dbeafe; color: #1e40af; }
+    .badge-ner     { background: #ede9fe; color: #5b21b6; }
+    .badge-llm     { background: #fce7f3; color: #9d174d; }
+    .conf-bar-wrap { display: flex; align-items: center; gap: 0.55rem; }
+    .conf-bar { height: 5px; border-radius: 99px; background: var(--border); width: 52px; overflow: hidden; }
+    .conf-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), #818cf8); }
+    .conf-pct  { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; white-space: nowrap; min-width: 2.25rem; }
+    .empty-state {
+      color: var(--text-faint); text-align: center;
+      padding: 2.5rem 1.5rem; font-size: 0.875rem; font-weight: 500;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .model-card, .btn, textarea { transition: none; }
+      .model-card:hover { transform: none; }
+      .spinner { animation-duration: 1.2s; }
+    }
+
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px;
+      padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0);
+      white-space: nowrap; border: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="header">
+      <div class="header-row">
+        <div class="brand-block">
+          <div class="brand-top">
+            <img class="brand-mark-only" src="/branding/logo.webp?v=4" width="44" height="44" alt="" decoding="async" fetchpriority="high" />
+            <div class="brand-titles">
+              <h1 class="product-title">Bright Masker</h1>
+            </div>
+          </div>
+          <p class="header-sub">Sensitive-data masking with pattern detection, NER, and mandatory LLM validation — built for regulated and high-trust workflows.</p>
+        </div>
+        <div class="active-model-badge" id="activeModelBadge">
+          <span class="dot" aria-hidden="true"></span>
+          <span id="activeModelLabel">Loading…</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="flow-panel" aria-labelledby="flow-panel-title">
+      <h2 class="flow-panel-title" id="flow-panel-title">Processing pipeline</h2>
+      <div class="stepper-scroll">
+        <div class="stepper" role="list" aria-label="Pipeline stages">
+        <div class="stepper-node" role="listitem">
+          <span class="stepper-dot" aria-hidden="true"></span>
+          <span class="stepper-label">Input</span>
+          <span class="stepper-sublabel">Raw text</span>
+        </div>
+        <div class="stepper-connector" aria-hidden="true"></div>
+        <div class="stepper-node" role="listitem">
+          <span class="stepper-dot" aria-hidden="true"></span>
+          <span class="stepper-label">Preprocessor</span>
+          <span class="stepper-sublabel">Normalize · language</span>
+        </div>
+        <div class="stepper-connector" aria-hidden="true"></div>
+        <div class="stepper-node stepper-node--parallel" role="listitem">
+          <div class="stepper-parallel-rows">
+            <div class="stepper-parallel-row">
+              <span class="mini-dot" aria-hidden="true"></span>
+              <span class="stepper-label">Pattern</span>
+            </div>
+            <div class="stepper-parallel-row">
+              <span class="mini-dot" aria-hidden="true"></span>
+              <span class="stepper-label">NER</span>
+            </div>
+          </div>
+          <span class="stepper-parallel-tag">Parallel</span>
+        </div>
+        <div class="stepper-connector" aria-hidden="true"></div>
+        <div class="stepper-node" role="listitem">
+          <span class="stepper-dot" aria-hidden="true"></span>
+          <span class="stepper-label">LLM review</span>
+          <span class="stepper-sublabel">Validate · augment</span>
+        </div>
+        <div class="stepper-connector" aria-hidden="true"></div>
+        <div class="stepper-node" role="listitem">
+          <span class="stepper-dot stepper-dot--muted" aria-hidden="true"></span>
+          <span class="stepper-label">Merge</span>
+          <span class="stepper-sublabel">Dedup · overlaps</span>
+        </div>
+        <div class="stepper-connector" aria-hidden="true"></div>
+        <div class="stepper-node" role="listitem">
+          <span class="stepper-dot" aria-hidden="true"></span>
+          <span class="stepper-label">Masking</span>
+          <span class="stepper-sublabel">Redact · substitute</span>
+        </div>
+        <div class="stepper-connector" aria-hidden="true"></div>
+        <div class="stepper-node" role="listitem">
+          <span class="stepper-dot stepper-dot--muted" aria-hidden="true"></span>
+          <span class="stepper-label">Output</span>
+          <span class="stepper-sublabel">Masked text</span>
+        </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="model-selector" aria-labelledby="model-section-title">
+      <h2 class="section-title" id="model-section-title">LLM review model</h2>
+      <div class="model-cards" id="modelCards">
+
+        <div class="model-card" id="card-qwen25_7b" onclick="selectModel('qwen25_7b')" role="button" tabindex="0" aria-pressed="false" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); selectModel('qwen25_7b'); }">
+          <div class="model-card-top">
+            <span class="provider-badge provider-openrouter">OpenRouter</span>
+            <div class="model-check" aria-hidden="true">
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="model-name">Qwen 2.5 · 7B</div>
+          <div class="model-desc">Lightweight and cost-efficient. Good baseline accuracy for standard documents.</div>
+          <div class="model-attrs">
+            <span class="model-attr attr-speed-fast">Fast · ~3–5s</span>
+            <span class="model-attr attr-paid">Paid</span>
+          </div>
+        </div>
+
+        <div class="model-card" id="card-qwen3_8b" onclick="selectModel('qwen3_8b')" role="button" tabindex="0" aria-pressed="false" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); selectModel('qwen3_8b'); }">
+          <div class="model-card-top">
+            <span class="provider-badge provider-openrouter">OpenRouter</span>
+            <div class="model-check" aria-hidden="true">
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="model-name">Qwen 3 · 8B</div>
+          <div class="model-desc">Fast extraction for standard documents. Qwen3 quality beats Qwen2.5 72B at 8B size.</div>
+          <div class="model-attrs">
+            <span class="model-attr attr-speed-fast">Fast · ~3–5s</span>
+            <span class="model-attr attr-paid">Paid</span>
+          </div>
+        </div>
+
+        <div class="model-card" id="card-qwen3_32b" onclick="selectModel('qwen3_32b')" role="button" tabindex="0" aria-pressed="false" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); selectModel('qwen3_32b'); }">
+          <div class="model-card-top">
+            <span class="provider-badge provider-openrouter">OpenRouter</span>
+            <div class="model-check" aria-hidden="true">
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="model-name">Qwen 3 · 32B</div>
+          <div class="model-desc">Highest quality for complex documents. Beats Qwen2.5 72B at half the size.</div>
+          <div class="model-attrs">
+            <span class="model-attr attr-speed-medium">Medium · ~8–12s</span>
+            <span class="model-attr attr-paid">Paid</span>
+          </div>
+        </div>
+
+        <div class="model-card" id="card-deployed" onclick="selectModel('deployed')" role="button" tabindex="0" aria-pressed="false" onkeydown="if(event.key==='Enter'||event.key===' ') { event.preventDefault(); selectModel('deployed'); }">
+          <div class="model-card-top">
+            <span class="provider-badge provider-local">Deployed</span>
+            <div class="model-check" aria-hidden="true">
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+          <div class="model-name">Best Model · Deployed</div>
+          <div class="model-desc">Self-hosted on private infrastructure — data never leaves your environment. Fastest production inference.</div>
+          <div class="model-attrs">
+            <span class="model-attr attr-speed-fast">Fast · ~2–4s</span>
+            <span class="model-attr attr-priv">Private</span>
+          </div>
+        </div>
+
+      </div>
+      <div class="model-switch-status" id="modelSwitchStatus" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="card" aria-labelledby="input-heading">
+      <h2 class="card-title" id="input-heading">Input text</h2>
+      <label for="inputText" class="visually-hidden">Document text to mask</label>
+      <textarea id="inputText" placeholder="Paste medical records, legal filings, financial statements, support tickets, or any sensitive text. PII is detected and masked according to your entity configuration." aria-describedby="input-hint"></textarea>
+      <p id="input-hint" class="visually-hidden">Use Control or Command plus Enter to run masking.</p>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="maskBtn" onclick="maskText()">
+          <div class="spinner" id="spinner" aria-hidden="true"></div>
+          Mask text
+        </button>
+        <button type="button" class="btn btn-ghost" onclick="clearAll()">Clear</button>
+        <span class="kbd-hint" aria-hidden="true">⌘/Ctrl + Enter</span>
+        <p class="error-msg" id="errorMsg" role="alert"></p>
+      </div>
+    </section>
+
+    <section class="card" id="resultsCard" style="display:none" aria-live="polite">
+      <div class="stats-bar" id="statsBar"></div>
+      <h2 class="card-title">Masked output</h2>
+      <div class="masked-output" id="maskedOutput"></div>
+      <h2 class="card-title" style="margin-top:1.5rem">Detected entities</h2>
+      <div class="table-wrap" id="entitiesTable"></div>
+    </section>
+
+  </div>
+
+  <script>
+    let activeModelKey = null;
+
+    async function loadModels() {
+      try {
+        const modelsRes = await fetch('/config/models');
+        const modelsData = await modelsRes.json();
+
+        activeModelKey = modelsData.active;
+        updateModelCards(modelsData.models);
+        updateActiveLabel(modelsData.active, modelsData.models);
+      } catch(e) {
+        document.getElementById('activeModelLabel').textContent = 'Unavailable';
+      }
+    }
+
+    function updateModelCards(models) {
+      models.forEach(m => {
+        const card = document.getElementById('card-' + m.key);
+        if (!card) return;
+        card.classList.toggle('active', m.active);
+        card.setAttribute('aria-pressed', m.active ? 'true' : 'false');
+      });
+    }
+
+    function updateActiveLabel(activeKey, models) {
+      const active = models ? models.find(m => m.key === activeKey) : null;
+      const label = active ? active.display : activeKey;
+      document.getElementById('activeModelLabel').textContent = label;
+    }
+
+    async function selectModel(key) {
+      if (key === activeModelKey) return;
+
+      const statusEl = document.getElementById('modelSwitchStatus');
+      statusEl.className = 'model-switch-status';
+      statusEl.textContent = 'Switching model…';
+
+      document.querySelectorAll('.model-card').forEach(c => c.classList.add('switching'));
+
+      try {
+        const res = await fetch('/config/model', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model_key: key }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        activeModelKey = data.active;
+
+        document.querySelectorAll('.model-card').forEach(c => {
+          c.classList.remove('switching');
+          const isActive = c.id === 'card-' + key;
+          c.classList.toggle('active', isActive);
+          c.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+
+        document.getElementById('activeModelLabel').textContent = data.display;
+        statusEl.textContent = 'Switched to ' + data.display;
+        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+      } catch(e) {
+        document.querySelectorAll('.model-card').forEach(c => c.classList.remove('switching'));
+        statusEl.className = 'model-switch-status error';
+        statusEl.textContent = 'Switch failed: ' + e.message;
+      }
+    }
+
+    function statChip(label, valueHtml) {
+      return `<span class="stat-chip"><span class="stat-label">${label}</span><strong>${valueHtml}</strong></span>`;
+    }
+
+    function clearPreviousResults() {
+      document.getElementById('resultsCard').style.display = 'none';
+      document.getElementById('statsBar').innerHTML = '';
+      document.getElementById('maskedOutput').textContent = '';
+      document.getElementById('entitiesTable').innerHTML = '';
+    }
+
+    async function maskText() {
+      const text = document.getElementById('inputText').value.trim();
+      if (!text) return;
+
+      clearPreviousResults();
+
+      const btn     = document.getElementById('maskBtn');
+      const spinner = document.getElementById('spinner');
+      const errEl   = document.getElementById('errorMsg');
+
+      btn.disabled = true;
+      spinner.style.display = 'block';
+      errEl.style.display   = 'none';
+
+      try {
+        const res = await fetch('/mask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok) {
+          const e = await res.json();
+          throw new Error(e.detail || `HTTP ${res.status}`);
+        }
+        renderResults(await res.json());
+      } catch(e) {
+        errEl.textContent   = 'Error: ' + e.message;
+        errEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+      }
+    }
+
+    function renderResults(data) {
+      document.getElementById('resultsCard').style.display = 'block';
+      document.getElementById('maskedOutput').textContent  = data.masked_text;
+
+      const s = data.stats;
+      const toSecs = ms => (ms / 1000).toFixed(2) + ' s';
+
+      const chips = [
+        statChip('Total', toSecs(data.response_time_ms)),
+        statChip('Pattern', toSecs(s.pattern_ms)),
+        statChip('NER', toSecs(s.ner_ms)),
+      ];
+      if (s.llm_ms != null) chips.push(statChip('LLM', toSecs(s.llm_ms)));
+      chips.push(
+        statChip('Entities', String(s.spans_total)),
+        statChip('Language', esc(s.language || '—')),
+        statChip('Model', esc(s.llm_model || '—')),
+      );
+      document.getElementById('statsBar').innerHTML = chips.join('');
+
+      const container = document.getElementById('entitiesTable');
+      if (!data.spans.length) {
+        container.innerHTML = '<p class="empty-state">No PII detected in this input.</p>';
+        return;
+      }
+
+      const sourceLabels = {
+        'pattern': 'Pattern (Presidio)',
+        'ner':     'Named entity recognition',
+        'llm':     'LLM review',
+      };
+      const rows = data.spans.map(sp => {
+        const pct = Math.round(sp.confidence * 100);
+        return `<tr>
+          <td>${esc(sp.display_name)}</td>
+          <td><span class="original-val">${esc(sp.original)}</span></td>
+          <td><span class="masked-val">${esc(sp.masked)}</span></td>
+          <td>
+            <div class="conf-bar-wrap">
+              <div class="conf-bar"><div class="conf-fill" style="width:${pct}%"></div></div>
+              <span class="conf-pct">${pct}%</span>
+            </div>
+          </td>
+          <td><span class="badge badge-${sp.source}">${esc(sourceLabels[sp.source]||sp.source)}</span></td>
+        </tr>`;
+      }).join('');
+
+      container.innerHTML = `
+        <table>
+          <thead><tr>
+            <th>Entity</th><th>Original</th><th>Masked</th>
+            <th>Confidence</th><th>Source</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+
+      document.getElementById('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function esc(s) {
+      if (s == null) return '';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function clearAll() {
+      document.getElementById('inputText').value = '';
+      clearPreviousResults();
+      document.getElementById('errorMsg').style.display = 'none';
+    }
+
+    document.getElementById('inputText').addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') maskText();
+    });
+
+    loadModels();
+  </script>
+</body>
+</html>
