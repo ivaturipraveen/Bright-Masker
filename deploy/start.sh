@@ -134,23 +134,24 @@ else
   echo "[setup] spaCy en_core_web_lg already present — skipping."
 fi
 
-# ── Step 5: Install torch cu124 + vLLM 0.7.x (compatible pair for CUDA 12.x) ─
-VLLM_TARGET="0.7.3"
+# ── Step 5: Install torch cu124 + vLLM 0.8.x (compatible pair for CUDA 12.x) ─
+# vLLM 0.7.x does NOT support Qwen3 (released April 2025); 0.8.5+ is required.
+VLLM_TARGET="0.8.5"
 TORCH_CUDA_OK=$( "$PY" -c "import torch; print(torch.cuda.is_available())" 2>/dev/null || echo "False" )
 VLLM_VER=$( "$PY" -c "import vllm; print(vllm.__version__)" 2>/dev/null || echo "none" )
 
 if [ "$VLLM_VER" != "$VLLM_TARGET" ] || [ "$TORCH_CUDA_OK" != "True" ]; then
-  echo "[setup] Installing torch 2.5.1+cu124 and vLLM $VLLM_TARGET (cached on /workspace)..."
+  echo "[setup] Installing torch 2.6.0+cu124 and vLLM $VLLM_TARGET (cached on /workspace)..."
   mkdir -p /workspace/.pip-cache
   # Install torch for cu124 first so vLLM does not pull cu130
   "$PY" -m pip install $PIP_BIG $PIP_CACHE \
-    "torch==2.5.1" "torchvision==0.20.1" \
+    "torch==2.6.0" "torchvision==0.21.0" \
     --index-url https://download.pytorch.org/whl/cu124
   # Install vLLM pinned — must not upgrade torch
   "$PY" -m pip install $PIP_BIG $PIP_CACHE "vllm==$VLLM_TARGET"
   # vLLM may re-pull torch; force cu124 again
   "$PY" -m pip install $PIP_BIG $PIP_CACHE \
-    "torch==2.5.1" "torchvision==0.20.1" \
+    "torch==2.6.0" "torchvision==0.21.0" \
     --index-url https://download.pytorch.org/whl/cu124
 else
   echo "[setup] torch+vLLM $VLLM_VER already correct — skipping."
