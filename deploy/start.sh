@@ -161,8 +161,8 @@ MODEL_NAME="${MODEL_DEPLOYED_NAME:-Qwen/Qwen3-8B}"
 # RunPod (and some images) bind nginx on 8001 — use 8002+ for vLLM
 VLLM_PORT="${VLLM_PORT:-8002}"
 APP_PORT="${PORT:-8000}"
-GPU_MEM="${VLLM_GPU_UTIL:-0.75}"
-MAX_CTX="${VLLM_MAX_MODEL_LEN:-8192}"
+GPU_MEM="${VLLM_GPU_UTIL:-0.92}"
+MAX_CTX="${VLLM_MAX_MODEL_LEN:-4096}"
 
 # v1 multiprocess engine often fails on RunPod; legacy engine is more stable.
 export VLLM_USE_V1="${VLLM_USE_V1:-0}"
