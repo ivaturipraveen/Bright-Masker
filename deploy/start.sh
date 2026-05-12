@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# RunPod PyTorch images: packages go to python3; plain `python` may not match `pip`.
+PY="${PYTHON:-python3}"
+
 echo "============================================"
 echo "  Bright Masker — RunPod Startup"
 echo "============================================"
@@ -79,37 +82,38 @@ print('.env written.')
 "
 
 # ── Step 3: Install Python dependencies ──────────────────────────────────────
-if ! python -c "import fastapi" &>/dev/null; then
-  echo "[setup] Installing Python dependencies..."
-  pip install -r requirements.txt --quiet
+if ! "$PY" -c "import fastapi" &>/dev/null; then
+  echo "[setup] Installing Python dependencies ($PY -m pip)..."
+  "$PY" -m pip install -r requirements.txt
+  echo "[setup] Python dependencies installed."
 else
   echo "[setup] Python deps already installed — skipping."
 fi
 
 # ── Step 4: Install spaCy model ──────────────────────────────────────────────
-if ! python -c "import spacy; spacy.load('en_core_web_lg')" &>/dev/null; then
+if ! "$PY" -c "import spacy; spacy.load('en_core_web_lg')" &>/dev/null; then
   echo "[setup] Downloading spaCy en_core_web_lg..."
-  python -m spacy download en_core_web_lg
+  "$PY" -m spacy download en_core_web_lg
 else
   echo "[setup] spaCy en_core_web_lg already present — skipping."
 fi
 
 # ── Step 5: Install vLLM if missing ──────────────────────────────────────────
-if ! python -c "import vllm" &>/dev/null; then
+if ! "$PY" -c "import vllm" &>/dev/null; then
   echo "[setup] Installing vLLM..."
-  pip install vllm --quiet
+  "$PY" -m pip install vllm
 else
   echo "[setup] vLLM already installed — skipping."
 fi
 # vLLM pulls a newer transformers; GLiNER needs <5.2 — pin after vLLM install
 echo "[setup] Pinning transformers for GLiNER compatibility..."
-pip install "transformers>=4.51.3,<5.2.0" --quiet
+"$PY" -m pip install "transformers>=4.51.3,<5.2.0"
 
 # ── Step 6: Pre-download GLiNER model ────────────────────────────────────────
 GLINER_MODEL="${GLINER_MODEL_NAME:-urchade/gliner_large-v2.1}"
-if ! python -c "from gliner import GLiNER; GLiNER.from_pretrained('$GLINER_MODEL')" &>/dev/null; then
+if ! "$PY" -c "from gliner import GLiNER; GLiNER.from_pretrained('$GLINER_MODEL')" &>/dev/null; then
   echo "[setup] Downloading GLiNER model $GLINER_MODEL ..."
-  python -c "from gliner import GLiNER; GLiNER.from_pretrained('$GLINER_MODEL'); print('GLiNER ready.')"
+  "$PY" -c "from gliner import GLiNER; GLiNER.from_pretrained('$GLINER_MODEL'); print('GLiNER ready.')"
 else
   echo "[setup] GLiNER model already cached — skipping."
 fi
@@ -128,7 +132,7 @@ GPU_MEM="${VLLM_GPU_UTIL:-0.75}"
 MAX_CTX="${VLLM_MAX_MODEL_LEN:-8192}"
 
 echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT..."
-python -m vllm.entrypoints.openai.api_server \
+"$PY" -m vllm.entrypoints.openai.api_server \
   --model "$MODEL_NAME" \
   --host 0.0.0.0 \
   --port "$VLLM_PORT" \
@@ -162,4 +166,4 @@ echo "  vLLM ready on port $VLLM_PORT ✓"
 # ── Step 8: Start Bright Masker ──────────────────────────────────────────────
 echo "[2/2] Starting Bright Masker on port $APP_PORT..."
 cd /app
-TRANSFORMERS_OFFLINE=1 exec uvicorn app:app --host 0.0.0.0 --port "$APP_PORT"
+TRANSFORMERS_OFFLINE=1 exec "$PY" -m uvicorn app:app --host 0.0.0.0 --port "$APP_PORT"
