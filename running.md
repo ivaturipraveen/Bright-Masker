@@ -26,7 +26,7 @@ Set these in **Edit pod → Environment variables** if defaults are wrong for yo
 | `VLLM_MAX_MODEL_LEN` | vLLM context window | `4096` |
 | `PORT` | Uvicorn port | `8000` |
 | `LLM_MAX_TOKENS` | Max completion tokens (must fit under `VLLM_MAX_MODEL_LEN` with prompt) | **`512`** |
-| `HF_HUB_OFFLINE` | Set `0` for first-time downloads | `start.sh` forces `0` during setup |
+| `BRIGHT_MASKER_VENV` | Path to persistent Python venv | `/workspace/.bright-masker-venv` |
 
 **Do not** put spaces in values you later `export` from `.env` in a shell (e.g. avoid spaces in display names).
 
@@ -45,7 +45,7 @@ curl -s http://127.0.0.1:8000/docs | head -5
 
 ### 2. Survive SSH / web terminal disconnect
 
-Use **screen** (example uses **0.80** GPU util for GLiNER headroom):
+Use **screen** (example uses **0.70** GPU util for GLiNER headroom):
 
 ```bash
 screen -S vllm -dm bash -c '
@@ -68,7 +68,13 @@ Attach: `screen -r vllm` / `screen -r app` — detach with **Ctrl+A**, then **D*
 
 ### 3. Auto-start every pod boot
 
-Use the **start command** above. First boot can take 15–25+ minutes (pip + models). Later boots are faster thanks to `/workspace` and pip cache under `/workspace/.pip-cache`.
+Use the **start command** above.
+
+**Why `pip install` used to run every restart:** packages lived in the **container** (`/usr/local/...`). RunPod **deletes the container** on restart; only **`/workspace`** (your volume) persists.
+
+**What changed:** `deploy/start.sh` now uses a **venv on the volume** at **`/workspace/.bright-masker-venv`** (override with **`BRIGHT_MASKER_VENV`**). After the **first** successful install, restarts should show **`Python deps already installed — skipping`** unless you delete that folder. Hugging Face cache defaults to **`/workspace/.cache/huggingface`**.
+
+First boot can still take 15–25+ minutes (torch + vLLM + models). Later boots should be **much faster** (minutes, not a full reinstall).
 
 ---
 

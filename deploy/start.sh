@@ -1,8 +1,9 @@
 #!/bin/bash
 set -e
 
-# RunPod PyTorch images: packages go to python3; plain `python` may not match `pip`.
-PY="${PYTHON:-python3}"
+# RunPod: container root FS is wiped every restart — only /workspace persists.
+# We install all deps into a venv on the volume so "pip install" runs once.
+PYTHON_BOOT="${PYTHON_BOOT:-${PYTHON:-python3}}"
 # vLLM wheels are huge; default pip timeouts often fail on RunPod.
 if [ -z "$PIP_BIG" ]; then
   PIP_BIG="--default-timeout=900 --retries 15"
@@ -32,6 +33,21 @@ else
 fi
 
 cd "$APP_ROOT"
+
+# Persistent Python env (survives pod restarts; lives on the RunPod volume).
+VENV="${BRIGHT_MASKER_VENV:-/workspace/.bright-masker-venv}"
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "[setup] Creating venv at $VENV (first boot only)..."
+  "$PYTHON_BOOT" -m venv "$VENV"
+fi
+PY="$VENV/bin/python"
+echo "  PY=$PY  (override with BRIGHT_MASKER_VENV=...)"
+
+# Hugging Face cache on volume so models are not re-downloaded every boot
+export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
+mkdir -p "$HF_HOME"
+PIP_CACHE="--cache-dir /workspace/.pip-cache"
+mkdir -p /workspace/.pip-cache
 
 # RunPod / base images sometimes set HF offline — GLiNER + vLLM need Hub on first run.
 export HF_HUB_OFFLINE=0
@@ -103,7 +119,7 @@ print('.env written.')
 # ── Step 3: Install Python dependencies ──────────────────────────────────────
 if ! "$PY" -c "import fastapi" &>/dev/null; then
   echo "[setup] Installing Python dependencies ($PY -m pip)..."
-  "$PY" -m pip install $PIP_BIG -r requirements.txt
+  "$PY" -m pip install $PIP_BIG $PIP_CACHE -r requirements.txt
   echo "[setup] Python dependencies installed."
 else
   echo "[setup] Python deps already installed — skipping."
@@ -118,9 +134,7 @@ else
 fi
 
 # ── Step 5: Install torch cu124 + vLLM 0.7.x (compatible pair for CUDA 12.x) ─
-# Cache pip packages on /workspace so re-downloads never happen after first boot.
 VLLM_TARGET="0.7.3"
-PIP_CACHE="--cache-dir /workspace/.pip-cache"
 TORCH_CUDA_OK=$( "$PY" -c "import torch; print(torch.cuda.is_available())" 2>/dev/null || echo "False" )
 VLLM_VER=$( "$PY" -c "import vllm; print(vllm.__version__)" 2>/dev/null || echo "none" )
 
@@ -144,7 +158,7 @@ fi
 
 # vLLM 0.7.x + GLiNER both need transformers in a compatible range
 echo "[setup] Pinning transformers for vLLM 0.7 + GLiNER compatibility..."
-"$PY" -m pip install $PIP_BIG "transformers>=4.45.0,<5.0.0"
+"$PY" -m pip install $PIP_BIG $PIP_CACHE "transformers>=4.45.0,<5.0.0"
 
 # ── Step 6: Pre-download GLiNER model ────────────────────────────────────────
 GLINER_MODEL="${GLINER_MODEL_NAME:-urchade/gliner_large-v2.1}"
