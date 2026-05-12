@@ -12,16 +12,23 @@ echo "============================================"
 echo "  Bright Masker — RunPod Startup"
 echo "============================================"
 
-# ── Step 1: Clone repo if /app is missing ────────────────────────────────────
-if [ ! -f /app/app.py ]; then
-  echo "[setup] /app not found — cloning repo..."
-  git clone https://github.com/ivaturipraveen/Bright-Masker.git /app
+# Repo root = parent of deploy/ (works for /app or /workspace/Bright-Masker)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+export APP_ROOT
+echo "  APP_ROOT: $APP_ROOT"
+
+# ── Step 1: Clone repo if missing ────────────────────────────────────────────
+if [ ! -f "$APP_ROOT/app.py" ]; then
+  echo "[setup] Repo missing — cloning into $APP_ROOT ..."
+  mkdir -p "$(dirname "$APP_ROOT")"
+  git clone https://github.com/ivaturipraveen/Bright-Masker.git "$APP_ROOT"
   echo "[setup] Repo cloned."
 else
   echo "[setup] Repo already present — skipping clone."
 fi
 
-cd /app
+cd "$APP_ROOT"
 
 # RunPod / base images sometimes set HF offline — GLiNER + vLLM need Hub on first run.
 export HF_HUB_OFFLINE=0
@@ -31,6 +38,7 @@ export TRANSFORMERS_OFFLINE=0
 echo "[setup] Writing .env from environment..."
 python3 -c "
 import os
+app_root = os.environ['APP_ROOT']
 lines = [
   'DEFAULT_MODEL=' + os.getenv('DEFAULT_MODEL', 'deployed'),
   'MODEL_Q25_NAME=' + os.getenv('MODEL_Q25_NAME', 'qwen/qwen-2.5-7b-instruct'),
@@ -84,7 +92,7 @@ lines = [
   'OPENROUTER_API_KEY=' + os.getenv('OPENROUTER_API_KEY', ''),
   'OPENROUTER_BASE_URL=https://openrouter.ai/api/v1',
 ]
-with open('/app/.env', 'w') as f:
+with open(os.path.join(app_root, '.env'), 'w') as f:
     f.write('\n'.join(lines) + '\n')
 print('.env written.')
 "
@@ -139,7 +147,13 @@ APP_PORT="${PORT:-8000}"
 GPU_MEM="${VLLM_GPU_UTIL:-0.75}"
 MAX_CTX="${VLLM_MAX_MODEL_LEN:-8192}"
 
-echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT..."
+# v1 multiprocess engine often fails on RunPod; legacy engine is more stable.
+export VLLM_USE_V1="${VLLM_USE_V1:-0}"
+
+echo "[setup] torch / CUDA check:"
+"$PY" -c "import torch; print('  torch', torch.__version__, 'cuda=', torch.cuda.is_available(), getattr(torch.version, 'cuda', None))" || true
+
+echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT (VLLM_USE_V1=$VLLM_USE_V1)..."
 "$PY" -m vllm.entrypoints.openai.api_server \
   --model "$MODEL_NAME" \
   --host 0.0.0.0 \
@@ -156,8 +170,8 @@ echo "  vLLM PID: $VLLM_PID"
 WAITED=0
 until curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"'; do
   if ! kill -0 $VLLM_PID 2>/dev/null; then
-    echo "ERROR: vLLM process died. Last logs:"
-    tail -30 /var/log/vllm.log
+    echo "ERROR: vLLM process died. Log excerpt (see /var/log/vllm.log):"
+    tail -120 /var/log/vllm.log
     exit 1
   fi
   echo -n "."
@@ -173,5 +187,5 @@ echo "  vLLM ready on port $VLLM_PORT ✓"
 
 # ── Step 8: Start Bright Masker ──────────────────────────────────────────────
 echo "[2/2] Starting Bright Masker on port $APP_PORT..."
-cd /app
+cd "$APP_ROOT"
 TRANSFORMERS_OFFLINE=1 exec "$PY" -m uvicorn app:app --host 0.0.0.0 --port "$APP_PORT"
