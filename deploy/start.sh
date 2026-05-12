@@ -113,9 +113,9 @@ if ! "$PY" -c "import vllm" &>/dev/null; then
 else
   echo "[setup] vLLM already installed — skipping."
 fi
-# vLLM pulls a newer transformers; GLiNER needs <5.2 — pin after vLLM install
-echo "[setup] Pinning transformers for GLiNER compatibility..."
-"$PY" -m pip install $PIP_BIG "transformers>=4.51.3,<5.2.0"
+# vLLM 0.20.x forbids transformers 5.0–5.5.x; GLiNER needs <5.2 — overlap is 4.56.x–4.x
+echo "[setup] Pinning transformers for vLLM + GLiNER compatibility..."
+"$PY" -m pip install $PIP_BIG "transformers>=4.56.0,<5.0.0"
 
 # ── Step 6: Pre-download GLiNER model ────────────────────────────────────────
 GLINER_MODEL="${GLINER_MODEL_NAME:-urchade/gliner_large-v2.1}"
