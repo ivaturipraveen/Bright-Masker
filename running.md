@@ -21,7 +21,8 @@ Set these in **Edit pod → Environment variables** if defaults are wrong for yo
 | `DEFAULT_MODEL` | Active LLM profile | `deployed` |
 | `MODEL_DEPLOYED_BASE_URL` | vLLM OpenAI base URL | `http://127.0.0.1:8002/v1` |
 | `MODEL_DEPLOYED_NAME` | HF model id for vLLM | `Qwen/Qwen3-8B` |
-| `VLLM_GPU_UTIL` | vLLM GPU memory fraction | **`0.80`** (leave VRAM for GLiNER; raise only if you OOM on vLLM) |
+| `VLLM_GPU_UTIL` | vLLM GPU memory fraction | **`0.70`** (leave ~7 GB for GLiNER on 24 GB cards; raise only if vLLM OOM) |
+| `MODEL_DEPLOYED_MAX_TOKENS` | Completion cap for deployed vLLM | **`512`** (must fit under `VLLM_MAX_MODEL_LEN` with long prompts) |
 | `VLLM_MAX_MODEL_LEN` | vLLM context window | `4096` |
 | `PORT` | Uvicorn port | `8000` |
 | `LLM_MAX_TOKENS` | Max completion tokens (must fit under `VLLM_MAX_MODEL_LEN` with prompt) | **`512`** |
@@ -52,7 +53,7 @@ python3 -m vllm.entrypoints.openai.api_server \
   --model Qwen/Qwen3-8B \
   --host 0.0.0.0 --port 8002 \
   --max-model-len 4096 \
-  --gpu-memory-utilization 0.80 \
+  --gpu-memory-utilization 0.70 \
   --disable-log-requests \
   --dtype bfloat16 \
   > /var/log/vllm.log 2>&1'

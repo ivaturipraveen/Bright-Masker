@@ -68,7 +68,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "model_name":  os.getenv("MODEL_DEPLOYED_NAME", os.getenv("MODEL_PRIVATE_NAME", "")),
         "base_url":    os.getenv("MODEL_DEPLOYED_BASE_URL", os.getenv("MODEL_PRIVATE_BASE_URL", "")),
         "api_key":     os.getenv("MODEL_DEPLOYED_API_KEY", os.getenv("MODEL_PRIVATE_API_KEY", "")),
-        "max_tokens":  int(os.getenv("MODEL_DEPLOYED_MAX_TOKENS", os.getenv("MODEL_PRIVATE_MAX_TOKENS", "1024"))),
+        "max_tokens":  int(os.getenv("MODEL_DEPLOYED_MAX_TOKENS", os.getenv("MODEL_PRIVATE_MAX_TOKENS", "512"))),
         "timeout":     float(os.getenv("MODEL_DEPLOYED_TIMEOUT", os.getenv("MODEL_PRIVATE_TIMEOUT", "30.0"))),
         "max_retries": int(os.getenv("MODEL_DEPLOYED_MAX_RETRIES", os.getenv("MODEL_PRIVATE_MAX_RETRIES", "2"))),
         "extra_body":  (

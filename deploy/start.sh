@@ -66,7 +66,7 @@ lines = [
   'MODEL_DEPLOYED_NAME=' + os.getenv('MODEL_DEPLOYED_NAME', 'Qwen/Qwen3-8B'),
   'MODEL_DEPLOYED_BASE_URL=' + os.getenv('MODEL_DEPLOYED_BASE_URL', 'http://127.0.0.1:8002/v1'),
   'MODEL_DEPLOYED_API_KEY=' + os.getenv('MODEL_DEPLOYED_API_KEY', 'no-key-needed'),
-  'MODEL_DEPLOYED_MAX_TOKENS=' + os.getenv('MODEL_DEPLOYED_MAX_TOKENS', '1024'),
+  'MODEL_DEPLOYED_MAX_TOKENS=' + os.getenv('MODEL_DEPLOYED_MAX_TOKENS', '512'),
   'MODEL_DEPLOYED_TIMEOUT=' + os.getenv('MODEL_DEPLOYED_TIMEOUT', '30.0'),
   'MODEL_DEPLOYED_MAX_RETRIES=' + os.getenv('MODEL_DEPLOYED_MAX_RETRIES', '2'),
   'MODEL_DEPLOYED_DISABLE_REASONING=true',
@@ -160,12 +160,15 @@ echo "============================================"
 echo "  Setup complete — starting services"
 echo "============================================"
 
+# Reduce allocator fragmentation when GLiNER + vLLM share one GPU
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 # ── Step 7: Start vLLM ───────────────────────────────────────────────────────
 MODEL_NAME="${MODEL_DEPLOYED_NAME:-Qwen/Qwen3-8B}"
 # RunPod (and some images) bind nginx on 8001 — use 8002+ for vLLM
 VLLM_PORT="${VLLM_PORT:-8002}"
 APP_PORT="${PORT:-8000}"
-GPU_MEM="${VLLM_GPU_UTIL:-0.80}"
+GPU_MEM="${VLLM_GPU_UTIL:-0.70}"
 MAX_CTX="${VLLM_MAX_MODEL_LEN:-4096}"
 
 # v1 multiprocess engine often fails on RunPod; legacy engine is more stable.
