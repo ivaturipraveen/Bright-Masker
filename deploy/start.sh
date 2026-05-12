@@ -37,11 +37,11 @@ cd "$APP_ROOT"
 # Persistent Python env (survives pod restarts; lives on the RunPod volume).
 VENV="${BRIGHT_MASKER_VENV:-/workspace/.bright-masker-venv}"
 if [ ! -x "$VENV/bin/python" ]; then
-  echo "[setup] Creating venv at $VENV (first boot only)..."
+  echo "[setup] Creating venv at $VENV (first boot only; lives on /workspace volume)..."
   "$PYTHON_BOOT" -m venv "$VENV"
 fi
 PY="$VENV/bin/python"
-echo "  PY=$PY  (override with BRIGHT_MASKER_VENV=...)"
+echo "  PY=$PY  — all pip installs go here, not system Python (override path: BRIGHT_MASKER_VENV)"
 
 # Hugging Face cache on volume so models are not re-downloaded every boot
 export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
@@ -118,7 +118,8 @@ print('.env written.')
 
 # ── Step 3: Install Python dependencies ──────────────────────────────────────
 if ! "$PY" -c "import fastapi" &>/dev/null; then
-  echo "[setup] Installing Python dependencies ($PY -m pip)..."
+  echo "[setup] Installing Python dependencies into venv ($PY -m pip)..."
+  "$PY" -m pip install $PIP_BIG $PIP_CACHE --upgrade pip setuptools wheel
   "$PY" -m pip install $PIP_BIG $PIP_CACHE -r requirements.txt
   echo "[setup] Python dependencies installed."
 else

@@ -10,6 +10,22 @@ bash -c 'git clone https://github.com/ivaturipraveen/Bright-Masker.git /workspac
 
 You do **not** need to change this line when we push repo updates: `start.sh` pulls `origin/main` before starting services.
 
+`start.sh` already runs **`python3 -m venv /workspace/.bright-masker-venv`** (or **`BRIGHT_MASKER_VENV`**) and installs with **`$VENV/bin/python -m pip`**, so the long `Collecting …` / `Downloading …` log you see is **the first fill of that venv** on disk, not “system Python” every time.
+
+### Manual venv + install (web terminal only)
+
+Use this if you want to create the venv yourself before `start.sh`, or to debug:
+
+```bash
+export VENV="${BRIGHT_MASKER_VENV:-/workspace/.bright-masker-venv}"
+python3 -m venv "$VENV"
+"$VENV/bin/python" -m pip install --upgrade pip setuptools wheel
+"$VENV/bin/python" -m pip install --default-timeout=900 --retries=15 \
+  --cache-dir /workspace/.pip-cache -r /workspace/Bright-Masker/requirements.txt
+```
+
+Then start the app with **`bash /workspace/Bright-Masker/deploy/start.sh`** — it will reuse that venv and skip `requirements.txt` once `import fastapi` works.
+
 ---
 
 ## Optional RunPod environment variables
