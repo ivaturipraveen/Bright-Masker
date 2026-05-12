@@ -177,7 +177,7 @@ echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT (VLLM_USE_V1=$VLLM_US
   --port "$VLLM_PORT" \
   --max-model-len "$MAX_CTX" \
   --gpu-memory-utilization "$GPU_MEM" \
-  --no-enable-log-requests \
+  --disable-log-requests \
   --dtype bfloat16 \
   > /var/log/vllm.log 2>&1 &
 
