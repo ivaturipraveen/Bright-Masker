@@ -139,25 +139,32 @@ else
   echo "[setup] spaCy en_core_web_lg already present — skipping."
 fi
 
-# ── Step 5: Install torch cu124 + vLLM 0.8.x (compatible pair for CUDA 12.x) ─
+# ── Step 5: Install vLLM 0.8.x (requires torch>=2.6.0, CUDA 12.x) ────────────
 # vLLM 0.7.x does NOT support Qwen3 (released April 2025); 0.8.5+ is required.
+# We do NOT pin/downgrade torch — if a newer torch is already present it is fine.
 VLLM_TARGET="0.8.5"
+TORCH_MIN="2.6.0"
 TORCH_CUDA_OK=$( "$PY" -c "import torch; print(torch.cuda.is_available())" 2>/dev/null || echo "False" )
 VLLM_VER=$( "$PY" -c "import vllm; print(vllm.__version__)" 2>/dev/null || echo "none" )
+TORCH_OK=$( "$PY" -c "
+from packaging.version import Version
+import torch
+print('True' if Version(torch.__version__.split('+')[0]) >= Version('$TORCH_MIN') else 'False')
+" 2>/dev/null || echo "False" )
 
 if [ "$VLLM_VER" != "$VLLM_TARGET" ] || [ "$TORCH_CUDA_OK" != "True" ]; then
-  echo "[setup] Installing torch 2.6.0+cu124 and vLLM $VLLM_TARGET (cached on /workspace)..."
+  echo "[setup] Installing vLLM $VLLM_TARGET (cached on /workspace)..."
   mkdir -p /workspace/.pip-cache
-  # Install torch for cu124 first so vLLM does not pull cu130
-  "$PY" -m pip install $PIP_BIG $PIP_CACHE \
-    "torch==2.6.0" "torchvision==0.21.0" \
-    --index-url https://download.pytorch.org/whl/cu124
-  # Install vLLM pinned — must not upgrade torch
+  if [ "$TORCH_OK" != "True" ]; then
+    # Only install torch if below the minimum — never downgrade a newer version
+    echo "[setup]   torch < $TORCH_MIN detected — installing torch $TORCH_MIN+cu124..."
+    "$PY" -m pip install $PIP_BIG $PIP_CACHE \
+      "torch>=$TORCH_MIN" "torchvision" \
+      --index-url https://download.pytorch.org/whl/cu124
+  else
+    echo "[setup]   torch already >= $TORCH_MIN — skipping torch install."
+  fi
   "$PY" -m pip install $PIP_BIG $PIP_CACHE "vllm==$VLLM_TARGET"
-  # vLLM may re-pull torch; force cu124 again
-  "$PY" -m pip install $PIP_BIG $PIP_CACHE \
-    "torch==2.6.0" "torchvision==0.21.0" \
-    --index-url https://download.pytorch.org/whl/cu124
 else
   echo "[setup] torch+vLLM $VLLM_VER already correct — skipping."
 fi
