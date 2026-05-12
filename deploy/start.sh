@@ -183,12 +183,19 @@ MODEL_NAME="${MODEL_DEPLOYED_NAME:-Qwen/Qwen3-8B}"
 # RunPod (and some images) bind nginx on 8001 — use 8002+ for vLLM
 VLLM_PORT="${VLLM_PORT:-8002}"
 APP_PORT="${PORT:-8000}"
-GPU_MEM="${VLLM_GPU_UTIL:-0.70}"
+# Qwen3-8B bf16 weights alone are ~16 GB; 0.70×24 GB ≈ 16.8 GB leaves almost no KV
+# headroom and often fails with "Engine process failed to start". Default higher;
+# if /mask GLiNER OOMs, lower VLLM_GPU_UTIL (e.g. 0.82) or shorten context.
+GPU_MEM="${VLLM_GPU_UTIL:-0.90}"
 MAX_CTX="${VLLM_MAX_MODEL_LEN:-4096}"
+VLLM_DTYPE="${VLLM_DTYPE:-bfloat16}"
+# Optional extra CLI flags (space-separated), e.g. "--enforce-eager"
+VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
 
 # v1 multiprocess engine often fails on RunPod; legacy engine is more stable.
 export VLLM_USE_V1="${VLLM_USE_V1:-0}"
 
+echo "[setup] vLLM: gpu-memory-utilization=$GPU_MEM max-model-len=$MAX_CTX dtype=$VLLM_DTYPE"
 echo "[setup] torch / CUDA check:"
 "$PY" -c "import torch; print('  torch', torch.__version__, 'cuda=', torch.cuda.is_available(), getattr(torch.version, 'cuda', None))" || true
 
@@ -197,6 +204,7 @@ if curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"' 2>/dev/nu
   echo "[1/2] vLLM already running on port $VLLM_PORT — skipping."
 else
   echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT..."
+  # shellcheck disable=SC2086
   "$PY" -m vllm.entrypoints.openai.api_server \
     --model "$MODEL_NAME" \
     --host 0.0.0.0 \
@@ -204,7 +212,8 @@ else
     --max-model-len "$MAX_CTX" \
     --gpu-memory-utilization "$GPU_MEM" \
     --disable-log-requests \
-    --dtype bfloat16 \
+    --dtype "$VLLM_DTYPE" \
+    $VLLM_EXTRA_ARGS \
     > /var/log/vllm.log 2>&1 &
 
   VLLM_PID=$!
@@ -212,8 +221,12 @@ else
   WAITED=0
   until curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"'; do
     if ! kill -0 $VLLM_PID 2>/dev/null; then
-      echo "ERROR: vLLM process died. Log excerpt:"
-      tail -120 /var/log/vllm.log
+      echo "ERROR: vLLM process died. Full log: /var/log/vllm.log (excerpt below)"
+      tail -250 /var/log/vllm.log
+      echo ""
+      echo "Hints: raise VRAM for weights+KV → set VLLM_GPU_UTIL=0.90 (default) or 0.92;"
+      echo "  OOM during masking → lower VLLM_GPU_UTIL or VLLM_MAX_MODEL_LEN (e.g. 3072);"
+      echo "  older GPU → VLLM_DTYPE=float16; unstable worker → VLLM_EXTRA_ARGS='--enforce-eager'"
       exit 1
     fi
     echo -n "."
