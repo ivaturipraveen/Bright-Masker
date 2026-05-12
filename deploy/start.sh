@@ -121,6 +121,23 @@ if ! "$PY" -c "import vllm" &>/dev/null; then
 else
   echo "[setup] vLLM already installed — skipping."
 fi
+
+# vLLM often pulls torch built for CUDA 13 (cu130) but RunPod drivers are 12.x.
+# Detect driver CUDA version and reinstall matching torch if CUDA is not available.
+if ! "$PY" -c "import torch; assert torch.cuda.is_available()" &>/dev/null; then
+  echo "[setup] torch.cuda not available — detecting driver CUDA version..."
+  CUDA_DRV=$( nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo "" )
+  echo "[setup] nvidia-smi driver: $CUDA_DRV"
+  # RunPod 550.x / 535.x drivers support CUDA 12.4 / 12.2 — default to cu124
+  echo "[setup] Reinstalling torch for cu124 to match driver..."
+  "$PY" -m pip install $PIP_BIG \
+    "torch==2.5.1" "torchvision==0.20.1" \
+    --index-url https://download.pytorch.org/whl/cu124
+  "$PY" -c "import torch; print('[setup] torch CUDA after fix: cuda=', torch.cuda.is_available(), torch.version.cuda)"
+else
+  "$PY" -c "import torch; print('[setup] torch CUDA ok: cuda=', torch.cuda.is_available(), torch.version.cuda)"
+fi
+
 # vLLM 0.20.x forbids transformers 5.0–5.5.x; GLiNER needs <5.2 — overlap is 4.56.x–4.x
 echo "[setup] Pinning transformers for vLLM + GLiNER compatibility..."
 "$PY" -m pip install $PIP_BIG "transformers>=4.56.0,<5.0.0"
