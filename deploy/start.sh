@@ -199,6 +199,14 @@ echo "[setup] vLLM: gpu-memory-utilization=$GPU_MEM max-model-len=$MAX_CTX dtype
 echo "[setup] torch / CUDA check:"
 "$PY" -c "import torch; print('  torch', torch.__version__, 'cuda=', torch.cuda.is_available(), getattr(torch.version, 'cuda', None))" || true
 
+# Pre-check: load tokenizer to catch missing model files / bad model id early
+echo "[setup] Verifying model tokenizer ($MODEL_NAME)..."
+"$PY" -c "
+from transformers import AutoTokenizer
+tok = AutoTokenizer.from_pretrained('$MODEL_NAME', trust_remote_code=True)
+print('  tokenizer OK — vocab size:', tok.vocab_size)
+" || { echo "ERROR: Cannot load tokenizer for '$MODEL_NAME'."; echo "  Check MODEL_DEPLOYED_NAME env var and that HF_HOME=/workspace/.cache/huggingface is accessible."; exit 1; }
+
 # ── Start vLLM (skip if already running) ─────────────────────────────────────
 if curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"' 2>/dev/null; then
   echo "[1/2] vLLM already running on port $VLLM_PORT — skipping."
@@ -216,6 +224,7 @@ else
     --gpu-memory-utilization "$GPU_MEM" \
     --disable-log-requests \
     --dtype "$VLLM_DTYPE" \
+    --trust-remote-code \
     --enforce-eager \
     $VLLM_EXTRA_ARGS \
     > /var/log/vllm.log 2>&1 &
