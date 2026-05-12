@@ -18,14 +18,17 @@ APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export APP_ROOT
 echo "  APP_ROOT: $APP_ROOT"
 
-# ── Step 1: Clone repo if missing ────────────────────────────────────────────
+# ── Step 1: Clone or pull latest code ────────────────────────────────────────
 if [ ! -f "$APP_ROOT/app.py" ]; then
   echo "[setup] Repo missing — cloning into $APP_ROOT ..."
   mkdir -p "$(dirname "$APP_ROOT")"
   git clone https://github.com/ivaturipraveen/Bright-Masker.git "$APP_ROOT"
   echo "[setup] Repo cloned."
 else
-  echo "[setup] Repo already present — skipping clone."
+  echo "[setup] Pulling latest code from GitHub..."
+  cd "$APP_ROOT"
+  git fetch origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null || echo "[setup] git pull skipped (no network or detached)"
+  echo "[setup] Code up to date."
 fi
 
 cd "$APP_ROOT"
