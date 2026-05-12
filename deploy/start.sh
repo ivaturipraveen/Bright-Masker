@@ -115,22 +115,23 @@ else
 fi
 
 # ── Step 5: Install torch cu124 + vLLM 0.7.x (compatible pair for CUDA 12.x) ─
-# vLLM 0.20+ requires torch 2.11 (cu130 only) — not usable on CUDA 12.x drivers.
-# vLLM 0.7.3 supports torch 2.5.x and is the latest stable for cu124.
+# Cache pip packages on /workspace so re-downloads never happen after first boot.
 VLLM_TARGET="0.7.3"
+PIP_CACHE="--cache-dir /workspace/.pip-cache"
 TORCH_CUDA_OK=$( "$PY" -c "import torch; print(torch.cuda.is_available())" 2>/dev/null || echo "False" )
 VLLM_VER=$( "$PY" -c "import vllm; print(vllm.__version__)" 2>/dev/null || echo "none" )
 
 if [ "$VLLM_VER" != "$VLLM_TARGET" ] || [ "$TORCH_CUDA_OK" != "True" ]; then
-  echo "[setup] Installing torch 2.5.1+cu124 and vLLM $VLLM_TARGET..."
+  echo "[setup] Installing torch 2.5.1+cu124 and vLLM $VLLM_TARGET (cached on /workspace)..."
+  mkdir -p /workspace/.pip-cache
   # Install torch for cu124 first so vLLM does not pull cu130
-  "$PY" -m pip install $PIP_BIG \
+  "$PY" -m pip install $PIP_BIG $PIP_CACHE \
     "torch==2.5.1" "torchvision==0.20.1" \
     --index-url https://download.pytorch.org/whl/cu124
   # Install vLLM pinned — must not upgrade torch
-  "$PY" -m pip install $PIP_BIG "vllm==$VLLM_TARGET"
+  "$PY" -m pip install $PIP_BIG $PIP_CACHE "vllm==$VLLM_TARGET"
   # vLLM may re-pull torch; force cu124 again
-  "$PY" -m pip install $PIP_BIG \
+  "$PY" -m pip install $PIP_BIG $PIP_CACHE \
     "torch==2.5.1" "torchvision==0.20.1" \
     --index-url https://download.pytorch.org/whl/cu124
 else
