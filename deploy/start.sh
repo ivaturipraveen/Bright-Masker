@@ -171,39 +171,50 @@ export VLLM_USE_V1="${VLLM_USE_V1:-0}"
 echo "[setup] torch / CUDA check:"
 "$PY" -c "import torch; print('  torch', torch.__version__, 'cuda=', torch.cuda.is_available(), getattr(torch.version, 'cuda', None))" || true
 
-echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT (VLLM_USE_V1=$VLLM_USE_V1)..."
-"$PY" -m vllm.entrypoints.openai.api_server \
-  --model "$MODEL_NAME" \
-  --host 0.0.0.0 \
-  --port "$VLLM_PORT" \
-  --max-model-len "$MAX_CTX" \
-  --gpu-memory-utilization "$GPU_MEM" \
-  --disable-log-requests \
-  --dtype bfloat16 \
-  > /var/log/vllm.log 2>&1 &
+# ── Start vLLM (skip if already running) ─────────────────────────────────────
+if curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"' 2>/dev/null; then
+  echo "[1/2] vLLM already running on port $VLLM_PORT — skipping."
+else
+  echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT..."
+  "$PY" -m vllm.entrypoints.openai.api_server \
+    --model "$MODEL_NAME" \
+    --host 0.0.0.0 \
+    --port "$VLLM_PORT" \
+    --max-model-len "$MAX_CTX" \
+    --gpu-memory-utilization "$GPU_MEM" \
+    --disable-log-requests \
+    --dtype bfloat16 \
+    > /var/log/vllm.log 2>&1 &
 
-VLLM_PID=$!
-echo "  vLLM PID: $VLLM_PID"
+  VLLM_PID=$!
+  echo "  vLLM PID: $VLLM_PID"
+  WAITED=0
+  until curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"'; do
+    if ! kill -0 $VLLM_PID 2>/dev/null; then
+      echo "ERROR: vLLM process died. Log excerpt:"
+      tail -120 /var/log/vllm.log
+      exit 1
+    fi
+    echo -n "."
+    sleep 5
+    WAITED=$((WAITED + 5))
+    if [ $WAITED -gt 600 ]; then
+      echo "ERROR: vLLM did not start within 10 minutes"
+      exit 1
+    fi
+  done
+  echo ""
+  echo "  vLLM ready on port $VLLM_PORT ✓"
+fi
 
-WAITED=0
-until curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"'; do
-  if ! kill -0 $VLLM_PID 2>/dev/null; then
-    echo "ERROR: vLLM process died. Log excerpt (see /var/log/vllm.log):"
-    tail -120 /var/log/vllm.log
-    exit 1
-  fi
-  echo -n "."
-  sleep 5
-  WAITED=$((WAITED + 5))
-  if [ $WAITED -gt 600 ]; then
-    echo "ERROR: vLLM did not start within 10 minutes"
-    exit 1
-  fi
-done
-echo ""
-echo "  vLLM ready on port $VLLM_PORT ✓"
-
-# ── Step 8: Start Bright Masker ──────────────────────────────────────────────
-echo "[2/2] Starting Bright Masker on port $APP_PORT..."
-cd "$APP_ROOT"
-TRANSFORMERS_OFFLINE=1 exec "$PY" -m uvicorn app:app --host 0.0.0.0 --port "$APP_PORT"
+# ── Start Bright Masker (skip if already running) ─────────────────────────────
+if curl -sf "http://127.0.0.1:$APP_PORT/health" 2>/dev/null | grep -q '.'; then
+  echo "[2/2] Bright Masker already running on port $APP_PORT — skipping."
+  # Keep container alive
+  echo "  All services running. Sleeping to keep container alive..."
+  tail -f /var/log/vllm.log
+else
+  echo "[2/2] Starting Bright Masker on port $APP_PORT..."
+  cd "$APP_ROOT"
+  TRANSFORMERS_OFFLINE=1 exec "$PY" -m uvicorn app:app --host 0.0.0.0 --port "$APP_PORT"
+fi
