@@ -28,7 +28,12 @@ if [ ! -f "$APP_ROOT/app.py" ]; then
 else
   echo "[setup] Pulling latest code from GitHub..."
   cd "$APP_ROOT"
-  git fetch origin main 2>/dev/null && git reset --hard origin/main 2>/dev/null || echo "[setup] git pull skipped (no network or detached)"
+  if ! git fetch origin main; then
+    echo "ERROR: git fetch failed — no network or GitHub unreachable. Cannot guarantee latest code."
+    echo "  Fix: ensure the pod has outbound internet access, then restart."
+    exit 1
+  fi
+  git reset --hard origin/main
   echo "[setup] Code up to date."
 fi
 
