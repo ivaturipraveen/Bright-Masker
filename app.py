@@ -5,6 +5,7 @@ import json
 import os
 import time
 import warnings
+import httpx
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -123,12 +124,28 @@ async def lifespan(app: FastAPI):
         "llm_review": _app_config.llm_model_name,
         "spacy": settings.spacy_model_name,
     })
-    # Warm up pattern + NER engines so first real request doesn't pay cold-start
+    # Warm up pattern + NER engines so first real request doesn't pay cold-start.
+    # Always runs regardless of which LLM is active — pattern/spaCy cold start is 4s+.
+    # Also warms local vLLM CUDA graphs if deployed model is active.
+    _warmup_text = "Warm-up: John Smith, john@example.com, (555) 010-0100."
     try:
-        await _pipeline.process("Warm-up: John Smith, john@example.com, 555-0100.")
-        log.info("warmup_complete")
-    except Exception:
-        pass  # warm-up failure must never block startup
+        await _pipeline.process(_warmup_text)
+        log.info("warmup_complete", model=_app_config.llm_model_name)
+    except Exception as _e:
+        log.warning("warmup_failed", error=str(_e)[:200])
+    # If DEFAULT_MODEL is not deployed, also fire a silent warmup via the deployed
+    # model so local vLLM CUDA graphs are captured before first user switch.
+    if default_key != "deployed" and "deployed" in MODEL_REGISTRY:
+        deployed_base = MODEL_REGISTRY["deployed"].get("base_url", "")
+        if deployed_base and await _check_vllm_health(deployed_base, timeout=3.0):
+            try:
+                _apply_model_config("deployed")
+                await _pipeline.process(_warmup_text)
+                log.info("vllm_warmup_complete")
+            except Exception as _e:
+                log.warning("vllm_warmup_failed", error=str(_e)[:200])
+            finally:
+                _apply_model_config(default_key)  # restore original model
     yield
     log.info("server_shutdown")
 
@@ -295,6 +312,27 @@ async def list_models():
     }
 
 
+async def _check_vllm_health(base_url: str, timeout: float = 5.0) -> bool:
+    """Ping vLLM /v1/models — returns True if reachable and serving."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(f"{base_url.rstrip('/')}/models")
+            return r.status_code == 200 and "data" in r.text
+    except Exception:
+        return False
+
+
+@app.get("/health/vllm")
+async def vllm_health():
+    """Check whether the local vLLM process is reachable."""
+    cfg = MODEL_REGISTRY.get("deployed", {})
+    base_url = cfg.get("base_url", "http://127.0.0.1:8002/v1")
+    healthy = await _check_vllm_health(base_url)
+    if not healthy:
+        raise HTTPException(503, f"vLLM not reachable at {base_url}")
+    return {"ok": True, "base_url": base_url}
+
+
 @app.post("/config/model")
 async def set_model(body: ModelSelectRequest):
     """Hot-swap the LLM backend at runtime — no restart required."""
@@ -305,8 +343,16 @@ async def set_model(body: ModelSelectRequest):
     if key not in MODEL_REGISTRY:
         raise HTTPException(400, f"Unknown model key '{key}'. Valid: {list(MODEL_REGISTRY)}")
 
-    _apply_model_config(key)
+    # For the deployed (local vLLM) model, verify the endpoint is reachable before switching
     cfg = MODEL_REGISTRY[key]
+    if cfg.get("provider") == "deployed":
+        base_url = cfg.get("base_url", "")
+        if base_url and not await _check_vllm_health(base_url):
+            raise HTTPException(503,
+                f"Cannot switch to '{key}': vLLM not reachable at {base_url}. "
+                "Check pod logs — vLLM may have crashed.")
+
+    _apply_model_config(key)
     log.info("model_switched", key=key, model=cfg["model_name"], base_url=cfg["base_url"])
 
     return {

@@ -73,6 +73,13 @@ class LlmLayer:
                     log.warning("llm_rate_limit", attempt=attempt + 1, wait_seconds=wait)
                     await asyncio.sleep(wait)
                     continue
+                if "connection" in err_str.lower() or "connect" in err_str.lower():
+                    wait = 2 ** attempt
+                    log.warning("llm_connection_error", attempt=attempt + 1,
+                                wait_seconds=wait, error=err_str[:200],
+                                base_url=self._config.openrouter_base_url)
+                    await asyncio.sleep(wait)
+                    continue
                 if "402" in err_str:
                     log.error("llm_error_insufficient_credits",
                               error=err_str[:200],
@@ -86,8 +93,8 @@ class LlmLayer:
                               error=err_str[:200],
                               fix="check_LLM_MODEL_NAME_in_.env")
                 else:
-                    log.error("llm_error_api",
-                              error=err_str[:200])
+                    log.error("llm_error_api", error=err_str[:200],
+                              base_url=self._config.openrouter_base_url)
                 return "", False
         log.warning("llm_all_retries_exhausted", retries=self._config.llm_max_retries)
         return "", False
