@@ -87,7 +87,7 @@ class Config:
         self.gliner_chunk_overlap_chars = _i("gliner_chunk_overlap_chars", "GLINER_CHUNK_OVERLAP_CHARS", 100)
 
         # ── LLM review layer ─────────────────────────────────────────────────
-        self.llm_timeout_seconds = _f("llm_timeout_seconds", "LLM_TIMEOUT_SECONDS", 5.0)
+        self.llm_timeout_seconds = _f("llm_timeout_seconds", "LLM_TIMEOUT_SECONDS", 60.0)
         self.llm_max_retries = _i("llm_max_retries", "LLM_MAX_RETRIES", 3)
         self.llm_max_tokens = _i("llm_max_tokens", "LLM_MAX_TOKENS", 512)
         self.llm_temperature = _f("llm_temperature", "LLM_TEMPERATURE", 0.0)

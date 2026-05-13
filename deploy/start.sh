@@ -96,7 +96,7 @@ lines = [
   'MODEL_DEPLOYED_BASE_URL=' + os.getenv('MODEL_DEPLOYED_BASE_URL', 'http://127.0.0.1:8002/v1'),
   'MODEL_DEPLOYED_API_KEY=' + os.getenv('MODEL_DEPLOYED_API_KEY', 'no-key-needed'),
   'MODEL_DEPLOYED_MAX_TOKENS=' + os.getenv('MODEL_DEPLOYED_MAX_TOKENS', '512'),
-  'MODEL_DEPLOYED_TIMEOUT=' + os.getenv('MODEL_DEPLOYED_TIMEOUT', '30.0'),
+  'MODEL_DEPLOYED_TIMEOUT=' + os.getenv('MODEL_DEPLOYED_TIMEOUT', '60.0'),
   'MODEL_DEPLOYED_MAX_RETRIES=' + os.getenv('MODEL_DEPLOYED_MAX_RETRIES', '2'),
   'MODEL_DEPLOYED_DISABLE_REASONING=true',
   'GLINER_MODEL_NAME=' + os.getenv('GLINER_MODEL_NAME', 'urchade/gliner_large-v2.1'),
@@ -106,14 +106,14 @@ lines = [
   'SPACY_MODEL_NAME=' + os.getenv('SPACY_MODEL_NAME', 'en_core_web_lg'),
   'ENTITIES_CONFIG_PATH=./entities_config.yaml',
   'LOG_LEVEL=' + os.getenv('LOG_LEVEL', 'INFO'),
-  'TRANSFORMERS_OFFLINE=0',
+  'TRANSFORMERS_OFFLINE=1',
   'ENABLE_ASYNC_LAYERS=true',
   'BATCH_MAX_CONCURRENCY=4',
   'PRESIDIO_MIN_SCORE=0.6',
   'PRESIDIO_NLP_ENGINE=spacy',
   'PRESIDIO_LANGUAGE=en',
   'LLM_MODEL_NAME=' + os.getenv('LLM_MODEL_NAME', 'qwen/qwen3-8b'),
-  'LLM_TIMEOUT_SECONDS=25.0',
+  'LLM_TIMEOUT_SECONDS=60.0',
   'LLM_MAX_RETRIES=2',
   'LLM_MAX_TOKENS=' + os.getenv('LLM_MAX_TOKENS', '512'),
   'LLM_TEMPERATURE=0.0',
@@ -194,6 +194,12 @@ else
 fi
 echo "[disk] after GLiNER cache:"; df -h /workspace | tail -1
 
+# Purge pip cache — wheels are large and the volume has limited space.
+# All packages are now installed in the venv; the cache is no longer needed.
+echo "[setup] Purging pip cache to free disk space..."
+rm -rf /workspace/.pip-cache
+echo "[disk] after pip cache purge:"; df -h /workspace | tail -1
+
 echo ""
 echo "============================================"
 echo "  Setup complete — starting services"
@@ -229,7 +235,7 @@ VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
 # v1 multiprocess engine often fails on RunPod; legacy engine is more stable.
 export VLLM_USE_V1="${VLLM_USE_V1:-0}"
 
-echo "[setup] vLLM: gpu-memory-utilization=$GPU_MEM max-model-len=$MAX_CTX dtype=$VLLM_DTYPE"
+echo "[setup] vLLM: gpu-memory-utilization=$GPU_MEM max-model-len=$MAX_CTX dtype=$VLLM_DTYPE enforce-eager=${VLLM_ENFORCE_EAGER:-0}"
 echo "[setup] torch / CUDA check:"
 "$PY" -c "import torch; print('  torch', torch.__version__, 'cuda=', torch.cuda.is_available(), getattr(torch.version, 'cuda', None))" || true
 
