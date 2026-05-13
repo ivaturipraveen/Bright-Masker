@@ -248,17 +248,32 @@ def _parse_json(raw: str) -> tuple[list[dict], bool]:
 
     # Repair truncated JSON — token-limit cut-off produces valid prefix but no closing ]
     if end == -1 or end < start:
+        # Pass 1: simply close the array (works when truncated cleanly after a complete object)
         repaired = raw[start:].rstrip().rstrip(",") + "]"
         try:
             data = json.loads(repaired)
             items = [d for d in data if isinstance(d, dict)]
             log.warning("llm_json_truncated_repaired",
                         items_recovered=len(items),
-                        hint="increase MODEL_XXX_MAX_TOKENS if this recurs")
+                        hint="increase max_tokens if this recurs")
             return items, True
         except json.JSONDecodeError:
-            log.warning("llm_json_truncated_unrecoverable", preview=raw[:200])
-            return [], False
+            pass
+        # Pass 2: truncated mid-string/mid-object — rewind to the last complete object
+        last_close = raw.rfind("}", start)
+        if last_close > start:
+            repaired2 = raw[start:last_close + 1].rstrip().rstrip(",") + "]"
+            try:
+                data = json.loads(repaired2)
+                items = [d for d in data if isinstance(d, dict)]
+                log.warning("llm_json_truncated_partial_repaired",
+                            items_recovered=len(items),
+                            hint="response cut mid-object — raise max_tokens to avoid partial loss")
+                return items, True
+            except json.JSONDecodeError:
+                pass
+        log.warning("llm_json_truncated_unrecoverable", preview=raw[:200])
+        return [], False
 
     try:
         data = json.loads(raw[start : end + 1])
