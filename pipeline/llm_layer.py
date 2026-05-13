@@ -61,6 +61,8 @@ class LlmLayer:
                     ),
                     timeout=self._config.llm_timeout_seconds,
                 )
+                if not response.choices:
+                    return "", True
                 return response.choices[0].message.content or "", True
             except asyncio.TimeoutError:
                 log.warning("llm_timeout", attempt=attempt + 1,
@@ -128,11 +130,10 @@ class LlmLayer:
                  candidates=len(candidate_spans))
 
         semaphore = asyncio.Semaphore(_MAX_PARALLEL_CHUNKS)
-        chunk_timings: list[float] = [0.0] * total_chunks
 
         async def _process_chunk(chunk: str, chunk_start: int, idx: int) -> tuple[list[dict], bool]:
             async with semaphore:
-                t_chunk = asyncio.get_event_loop().time()
+                t_chunk = asyncio.get_running_loop().time()
                 chunk_end = chunk_start + len(chunk)
                 chunk_candidates = [
                     {"entity_id": s.entity_id, "text": s.text, "source": s.source}
@@ -146,8 +147,7 @@ class LlmLayer:
                     .replace("{text}", chunk)
                 )
                 raw, api_ok = await self._call_api(system_prompt, user_prompt)
-                chunk_ms = (asyncio.get_event_loop().time() - t_chunk) * 1000
-                chunk_timings[idx] = chunk_ms
+                chunk_ms = (asyncio.get_running_loop().time() - t_chunk) * 1000
                 detections, parse_ok = _parse_json(raw)
                 # Chunk fails if API call failed OR JSON was present but unparseable
                 chunk_ok = api_ok and parse_ok
@@ -279,8 +279,9 @@ def _locate_spans(
     seen: set[tuple[int, int, str]] = set()
 
     for item in detections:
-        entity_id = item.get("entity_id", "")
-        entity_text = item.get("text", "")
+        # Support both compact {"e":...,"t":...} and legacy {"entity_id":...,"text":...} formats
+        entity_id = item.get("e") or item.get("entity_id", "")
+        entity_text = item.get("t") or item.get("text", "")
 
         if not entity_id or not entity_text:
             continue

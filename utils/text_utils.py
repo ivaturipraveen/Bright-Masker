@@ -152,7 +152,9 @@ def chunk_text(
             boundary += 1
 
         chunks.append((text[start:boundary], start))
-        start = boundary - overlap_chars
+        next_start = boundary - overlap_chars
+        # Ensure we always advance to prevent an infinite loop when overlap >= progress
+        start = max(next_start, start + 1)
         if start < 0:
             start = 0
 

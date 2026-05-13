@@ -116,8 +116,9 @@ lines = [
   'MODEL_DEPLOYED_MAX_RETRIES=' + os.getenv('MODEL_DEPLOYED_MAX_RETRIES', '2'),
   'MODEL_DEPLOYED_DISABLE_REASONING=true',
   'GLINER_MODEL_NAME=' + os.getenv('GLINER_MODEL_NAME', 'urchade/gliner_large-v2.1'),
+  'GLINER_DEVICE=' + os.getenv('GLINER_DEVICE', 'cuda'),
   'GLINER_THRESHOLD=' + os.getenv('GLINER_THRESHOLD', '0.25'),
-  'GLINER_MAX_CHUNK_CHARS=' + os.getenv('GLINER_MAX_CHUNK_CHARS', '2000'),
+  'GLINER_MAX_CHUNK_CHARS=' + os.getenv('GLINER_MAX_CHUNK_CHARS', '1200'),
   'GLINER_CHUNK_OVERLAP_CHARS=' + os.getenv('GLINER_CHUNK_OVERLAP_CHARS', '150'),
   'SPACY_MODEL_NAME=' + os.getenv('SPACY_MODEL_NAME', 'en_core_web_lg'),
   'ENTITIES_CONFIG_PATH=./entities_config.yaml',
@@ -225,34 +226,38 @@ echo "============================================"
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 # ── Step 7: Start vLLM ───────────────────────────────────────────────────────
-MODEL_NAME="${MODEL_DEPLOYED_NAME:-Qwen/Qwen3-8B}"
+# Default to AWQ quantized model — 4-bit weights are ~4.5 GB vs ~15.3 GB for bf16,
+# leaving room for GLiNER on CUDA and a generous KV cache within 24 GB VRAM.
+MODEL_NAME="${MODEL_DEPLOYED_NAME:-Qwen/Qwen3-8B-AWQ}"
 # RunPod (and some images) bind nginx on 8001 — use 8002+ for vLLM
 VLLM_PORT="${VLLM_PORT:-8002}"
 APP_PORT="${PORT:-8000}"
-# Qwen3-8B bf16 weights alone are ~16 GB; 0.70×24 GB ≈ 16.8 GB leaves almost no KV
-# headroom and often fails with "Engine process failed to start". Default higher;
-# if /mask GLiNER OOMs, lower VLLM_GPU_UTIL (e.g. 0.82) or shorten context.
-GPU_MEM="${VLLM_GPU_UTIL:-0.90}"
-MAX_CTX="${VLLM_MAX_MODEL_LEN:-8192}"
+# RTX 4090 VRAM budget with AWQ model:
+#   Qwen3-8B-AWQ weights  ~4.5 GB
+#   vLLM KV cache (0.75×24 = 18 GB budget, minus weights) ~13.5 GB
+#   GLiNER large on CUDA  ~1.5 GB  (set GLINER_DEVICE=cuda in RunPod env)
+#   Total                 ~19.5 GB (~82%)  — safe headroom for CUDA graphs
+# With full bf16 model set VLLM_GPU_UTIL=0.90 and VLLM_ENFORCE_EAGER=1.
+GPU_MEM="${VLLM_GPU_UTIL:-0.75}"
+MAX_CTX="${VLLM_MAX_MODEL_LEN:-4096}"
 VLLM_DTYPE="${VLLM_DTYPE:-bfloat16}"
-# --enforce-eager: disables CUDA graph capture.
-# DEFAULT ON: Qwen3-8B bf16 weights (15.27GB) + activations (1.45GB) + KV cache (4.38GB)
-# already fills 21.1GB of the 21.16GB (90%) budget. CUDA graph capture adds ~0.43GB on
-# top, pushing vLLM over the limit — it crashes silently seconds after startup.
-# Set VLLM_ENFORCE_EAGER=0 only if you lower VLLM_GPU_UTIL enough to leave headroom
-# (e.g. VLLM_GPU_UTIL=0.85 frees ~1.2GB extra for graph capture).
-if [ "${VLLM_ENFORCE_EAGER:-1}" = "0" ]; then
-  EAGER_FLAG=""
-  echo "[setup] CUDA graphs ENABLED (VLLM_ENFORCE_EAGER=0). Ensure VLLM_GPU_UTIL<=0.85 to avoid OOM crash."
-else
+# --enforce-eager disables CUDA graph capture (slower but safer).
+# Default OFF for AWQ: at 0.75 GPU util there is enough headroom for graph capture.
+# Set VLLM_ENFORCE_EAGER=1 only if vLLM crashes at startup (OOM during graph capture).
+if [ "${VLLM_ENFORCE_EAGER:-0}" = "1" ]; then
   EAGER_FLAG="--enforce-eager"
-  echo "[setup] enforce-eager ON — CUDA graphs disabled (stable on this GPU's VRAM budget)."
+  echo "[setup] enforce-eager ON — CUDA graphs disabled."
+else
+  EAGER_FLAG=""
+  echo "[setup] CUDA graphs ENABLED (default for AWQ). Set VLLM_ENFORCE_EAGER=1 if vLLM crashes at startup."
 fi
 # Optional extra CLI flags (space-separated)
 VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
 
-# v1 multiprocess engine often fails on RunPod; legacy engine is more stable.
+# Legacy engine (V0) is more stable on RunPod single-GPU setups.
 export VLLM_USE_V1="${VLLM_USE_V1:-0}"
+# Reduce CUDA allocator fragmentation when GLiNER + vLLM share one GPU.
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
 
 echo "[setup] vLLM: gpu-memory-utilization=$GPU_MEM max-model-len=$MAX_CTX dtype=$VLLM_DTYPE enforce-eager=${VLLM_ENFORCE_EAGER:-0}"
 echo "[setup] torch / CUDA check:"
@@ -281,7 +286,7 @@ else
     --disable-log-requests \
     --dtype "$VLLM_DTYPE" \
     --trust-remote-code \
-    --override-generation-config '{"temperature":0.0,"top_p":1.0,"top_k":-1}' \
+    --enable-prefix-caching \
     $EAGER_FLAG \
     $VLLM_EXTRA_ARGS \
     > /var/log/vllm.log 2>&1 &

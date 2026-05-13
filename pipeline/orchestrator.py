@@ -83,7 +83,7 @@ def _trim_multiline_spans(
             result.append(DetectedSpan(
                 text=trimmed,
                 start=span.start,
-                end=span.start + nl,
+                end=span.start + len(trimmed),
                 entity_id=span.entity_id,
                 display_name=span.display_name,
                 confidence=span.confidence,

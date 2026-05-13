@@ -8,5 +8,5 @@
 
 Review the candidates above and scan the document for any PII the NER missed.
 Return a JSON array only — no markdown, no explanation.
-Format: [{"entity_id": "...", "text": "...", "confidence": 0.0-1.0}]
+Format: [{"e": "entity_id_value", "t": "exact_text"}]
 Empty result: []

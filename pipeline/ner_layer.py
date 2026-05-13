@@ -15,12 +15,17 @@ _MAX_PARALLEL_NER_CHUNKS = 4
 
 
 def _best_device() -> str:
+    # GLINER_DEVICE=cuda forces GPU; default is CPU to leave VRAM headroom for vLLM
+    import os
+    forced = os.getenv("GLINER_DEVICE", "").lower()
+    if forced in ("cuda", "mps", "cpu"):
+        return forced
     try:
         import torch
         if torch.backends.mps.is_available():
             return "mps"
-        if torch.cuda.is_available():
-            return "cuda"
+        # Default to CPU — 503GB RAM is available and vLLM needs the VRAM
+        return "cpu"
     except Exception:
         pass
     return "cpu"

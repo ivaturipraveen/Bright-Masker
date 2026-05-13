@@ -134,5 +134,5 @@ OUTPUT FORMAT
 ══════════════════════════════════════════════════════
 
 Return ONLY a valid JSON array — no markdown fences, no explanation, no preamble.
-Each item: {"entity_id": "...", "text": "...", "confidence": 0.0–1.0}
+Use the SHORT key names: {"e": "entity_id_value", "t": "exact_text_from_document"}
 If nothing found: []
