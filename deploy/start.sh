@@ -47,6 +47,7 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 PY="$VENV/bin/python"
 echo "  PY=$PY  — all pip installs go here, not system Python (override path: BRIGHT_MASKER_VENV)"
+echo "[disk] workspace at boot:"; df -h /workspace | tail -1
 
 # Hugging Face cache on volume so models are not re-downloaded every boot
 export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
@@ -169,10 +170,12 @@ else
   echo "[setup] torch+vLLM $VLLM_VER already correct — skipping."
 fi
 "$PY" -c "import torch; print('[setup] torch CUDA:', torch.cuda.is_available(), torch.version.cuda)"
+echo "[disk] after vLLM install:"; df -h /workspace | tail -1
 
-# vLLM 0.7.x + GLiNER both need transformers in a compatible range
-echo "[setup] Pinning transformers for vLLM 0.7 + GLiNER compatibility..."
+# vLLM 0.8.x + GLiNER both need transformers in a compatible range
+echo "[setup] Pinning transformers for vLLM 0.8 + GLiNER compatibility..."
 "$PY" -m pip install $PIP_BIG $PIP_CACHE "transformers>=4.45.0,<5.0.0"
+echo "[disk] after transformers pin:"; df -h /workspace | tail -1
 
 # ── Step 6: Pre-download GLiNER model ────────────────────────────────────────
 GLINER_MODEL="${GLINER_MODEL_NAME:-urchade/gliner_large-v2.1}"
@@ -182,6 +185,7 @@ if ! "$PY" -c "from gliner import GLiNER; GLiNER.from_pretrained('$GLINER_MODEL'
 else
   echo "[setup] GLiNER model already cached — skipping."
 fi
+echo "[disk] after GLiNER cache:"; df -h /workspace | tail -1
 
 echo ""
 echo "============================================"
