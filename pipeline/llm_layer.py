@@ -17,7 +17,28 @@ _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 _DETECT_CHUNK_SIZE = 3500
 _DETECT_CHUNK_OVERLAP = 200
 _LLM_CONFIDENCE = 0.93
-_MAX_PARALLEL_CHUNKS = 3
+_MAX_PARALLEL_CHUNKS = 6          # was 3 — more parallelism for large PDFs
+_TOKENS_PER_CANDIDATE = 22        # ~tokens per output entity in short-key format
+_TOKENS_OVERHEAD = 150            # base cost even with 0 candidates (formatting + augmentation)
+_TOKENS_MAX_CAP = 1536            # hard ceiling per chunk call
+
+
+def _dynamic_max_tokens(n_candidates: int, config_max: int) -> int:
+    """Compute per-chunk max_tokens based on candidate count.
+
+    Formula: each output entity ≈ 22 tokens in {"e":...,"t":...} format.
+    Add 150-token overhead for JSON framing and any augmentation the LLM adds.
+    Cap at _TOKENS_MAX_CAP to stay within context limits.
+    """
+    computed = n_candidates * _TOKENS_PER_CANDIDATE + _TOKENS_OVERHEAD
+    return max(256, min(computed, _TOKENS_MAX_CAP, config_max if config_max > 0 else _TOKENS_MAX_CAP))
+
+
+def _looks_truncated(raw: str) -> bool:
+    """Return True if the response started a JSON array but never closed it."""
+    s = raw.strip()
+    bracket = s.find("[")
+    return bracket != -1 and "]" not in s[bracket:]
 
 
 class LlmLayer:
@@ -41,8 +62,14 @@ class LlmLayer:
         """Hot-swap the OpenAI client after a runtime model switch."""
         self._client = self._build_client()
 
-    async def _call_api(self, system_prompt: str, user_prompt: str) -> tuple[str, bool]:
+    async def _call_api(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int | None = None,
+    ) -> tuple[str, bool]:
         """Returns (response_text, success). success=False means API call failed."""
+        tokens = max_tokens if max_tokens is not None else self._config.llm_max_tokens
         for attempt in range(self._config.llm_max_retries):
             try:
                 extra_body = getattr(self._config, "llm_extra_body", None) or {}
@@ -54,7 +81,7 @@ class LlmLayer:
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt},
                         ],
-                        max_tokens=self._config.llm_max_tokens,
+                        max_tokens=tokens,
                         temperature=self._config.llm_temperature,
                         **({"stop": stop_seqs} if stop_seqs else {}),
                         **({"extra_body": extra_body} if extra_body else {}),
@@ -83,16 +110,13 @@ class LlmLayer:
                     await asyncio.sleep(wait)
                     continue
                 if "402" in err_str:
-                    log.error("llm_error_insufficient_credits",
-                              error=err_str[:200],
-                              fix="top_up_OpenRouter_credits_OR_reduce_LLM_MAX_TOKENS_in_.env")
+                    log.error("llm_error_insufficient_credits", error=err_str[:200],
+                              fix="top_up_OpenRouter_credits")
                 elif "401" in err_str or "authentication" in err_str.lower():
-                    log.error("llm_error_auth_failed",
-                              error=err_str[:200],
+                    log.error("llm_error_auth_failed", error=err_str[:200],
                               fix="check_OPENROUTER_API_KEY_in_.env")
                 elif "model_not_found" in err_str.lower() or "404" in err_str:
-                    log.error("llm_error_model_not_found",
-                              error=err_str[:200],
+                    log.error("llm_error_model_not_found", error=err_str[:200],
                               fix="check_LLM_MODEL_NAME_in_.env")
                 else:
                     log.error("llm_error_api", error=err_str[:200],
@@ -146,13 +170,28 @@ class LlmLayer:
                     .replace("{candidates_json}", candidates_json)
                     .replace("{text}", chunk)
                 )
-                raw, api_ok = await self._call_api(system_prompt, user_prompt)
+
+                # Dynamic token budget: scale with candidate count so small docs
+                # get a tight budget (fast) and dense docs get enough headroom.
+                max_tok = _dynamic_max_tokens(len(chunk_candidates), self._config.llm_max_tokens)
+                raw, api_ok = await self._call_api(system_prompt, user_prompt, max_tokens=max_tok)
+
+                # Auto-retry on truncation: if the JSON was cut off mid-stream,
+                # retry once with double the token budget before giving up.
+                if api_ok and raw and _looks_truncated(raw):
+                    retry_tok = min(max_tok * 2, _TOKENS_MAX_CAP)
+                    log.warning("llm_truncated_retrying",
+                                chunk=idx + 1, original_max=max_tok, retry_max=retry_tok,
+                                candidates=len(chunk_candidates))
+                    raw, api_ok = await self._call_api(system_prompt, user_prompt,
+                                                       max_tokens=retry_tok)
+
                 chunk_ms = (asyncio.get_running_loop().time() - t_chunk) * 1000
                 detections, parse_ok = _parse_json(raw)
-                # Chunk fails if API call failed OR JSON was present but unparseable
                 chunk_ok = api_ok and parse_ok
                 log.debug("llm_va_chunk", chunk=idx + 1, of=total_chunks,
                           candidates_in=len(chunk_candidates),
+                          max_tokens_used=max_tok,
                           chunk_ok=chunk_ok,
                           detections=len(detections),
                           chunk_ms=round(chunk_ms, 1),
@@ -186,7 +225,7 @@ class LlmLayer:
         llm_succeeded = any_chunk_succeeded
         log.debug("llm_va_raw", count=len(all_detections),
                  llm_succeeded=llm_succeeded,
-                 entities=list({d.get("entity_id") for d in all_detections}))
+                 entities=list({d.get("e") or d.get("entity_id") for d in all_detections}))
 
         spans = _locate_spans(all_detections, text, entities_by_id, _LLM_CONFIDENCE)
         log.debug("llm_va_done", spans_located=len(spans), llm_succeeded=llm_succeeded)
@@ -248,27 +287,23 @@ def _parse_json(raw: str) -> tuple[list[dict], bool]:
 
     # Repair truncated JSON — token-limit cut-off produces valid prefix but no closing ]
     if end == -1 or end < start:
-        # Pass 1: simply close the array (works when truncated cleanly after a complete object)
+        # Pass 1: simply close the array (works when cut cleanly after a complete object)
         repaired = raw[start:].rstrip().rstrip(",") + "]"
         try:
             data = json.loads(repaired)
             items = [d for d in data if isinstance(d, dict)]
-            log.warning("llm_json_truncated_repaired",
-                        items_recovered=len(items),
-                        hint="increase max_tokens if this recurs")
+            log.warning("llm_json_truncated_repaired", items_recovered=len(items))
             return items, True
         except json.JSONDecodeError:
             pass
-        # Pass 2: truncated mid-string/mid-object — rewind to the last complete object
+        # Pass 2: cut mid-string/mid-object — rewind to last complete closing brace
         last_close = raw.rfind("}", start)
         if last_close > start:
             repaired2 = raw[start:last_close + 1].rstrip().rstrip(",") + "]"
             try:
                 data = json.loads(repaired2)
                 items = [d for d in data if isinstance(d, dict)]
-                log.warning("llm_json_truncated_partial_repaired",
-                            items_recovered=len(items),
-                            hint="response cut mid-object — raise max_tokens to avoid partial loss")
+                log.warning("llm_json_truncated_partial_repaired", items_recovered=len(items))
                 return items, True
             except json.JSONDecodeError:
                 pass
@@ -344,11 +379,6 @@ def _find_all_occurrences(entity_text: str, document: str) -> list[tuple[int, in
         results.append((m.start(), m.end()))
 
     return results
-
-
-def _first_sentence(text: str) -> str:
-    end = text.find(".")
-    return (text[:end].strip() if end > 0 else text[:120].strip())
 
 
 def _load_template(filename: str) -> str:
