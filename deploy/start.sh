@@ -201,18 +201,49 @@ echo "[setup] Pinning transformers for vLLM 0.8 + GLiNER compatibility..."
 "$PY" -m pip install $PIP_BIG $PIP_CACHE "transformers>=4.45.0,<5.0.0"
 echo "[disk] after transformers pin:"; df -h /workspace | tail -1
 
-# ── Step 6: Pre-download GLiNER model ────────────────────────────────────────
-GLINER_MODEL="${GLINER_MODEL_NAME:-urchade/gliner_large-v2.1}"
+# ── Step 6a: Remove stale full-precision model if AWQ version is present ─────
+# Qwen3-8B bf16 = 16 GB; AWQ = 5.7 GB. If both exist, the bf16 is wasted space.
+BF16_CACHE="$HF_HOME/hub/models--Qwen--Qwen3-8B"
+AWQ_CACHE="$HF_HOME/hub/models--Qwen--Qwen3-8B-AWQ"
+if [ -d "$BF16_CACHE" ] && [ -d "$AWQ_CACHE" ]; then
+  echo "[setup] Removing unused Qwen3-8B bf16 model (16 GB) — AWQ is already cached..."
+  rm -rf "$BF16_CACHE"
+  echo "[disk] after bf16 cleanup:"; df -h /workspace | tail -1
+fi
+
+# ── Step 6b: Pre-download vLLM model (AWQ) ───────────────────────────────────
+# Download before starting vLLM so first boot gives a clear progress message.
+LLM_MODEL="Qwen/Qwen3-8B-AWQ"
+LLM_CACHE="$HF_HOME/hub/models--Qwen--Qwen3-8B-AWQ"
+if [ ! -d "$LLM_CACHE" ]; then
+  echo "[setup] Downloading $LLM_MODEL (~5.7 GB, first boot only)..."
+  "$PY" -c "
+from huggingface_hub import snapshot_download
+snapshot_download('$LLM_MODEL', ignore_patterns=['*.bin'])
+print('LLM model ready.')
+" || { echo "ERROR: Failed to download $LLM_MODEL"; exit 1; }
+  echo "[disk] after LLM download:"; df -h /workspace | tail -1
+else
+  echo "[setup] LLM model already cached ($LLM_MODEL) — skipping."
+fi
+
+# ── Step 6c: Pre-download GLiNER model ───────────────────────────────────────
+GLINER_MODEL="urchade/gliner_large-v2.1"
 if ! "$PY" -c "from gliner import GLiNER; GLiNER.from_pretrained('$GLINER_MODEL')" &>/dev/null; then
-  echo "[setup] Downloading GLiNER model $GLINER_MODEL ..."
+  echo "[setup] Downloading GLiNER model $GLINER_MODEL (~1.7 GB, first boot only)..."
   "$PY" -c "from gliner import GLiNER; GLiNER.from_pretrained('$GLINER_MODEL'); print('GLiNER ready.')"
 else
   echo "[setup] GLiNER model already cached — skipping."
 fi
-echo "[disk] after GLiNER cache:"; df -h /workspace | tail -1
+echo "[disk] after model cache:"; df -h /workspace | tail -1
+
+# ── Step 6d: Disk safety check ───────────────────────────────────────────────
+DISK_FREE_GB=$(df /workspace | awk 'NR==2 {printf "%.0f", $4/1024/1024}')
+if [ "$DISK_FREE_GB" -lt 5 ]; then
+  echo "WARNING: Only ${DISK_FREE_GB} GB free on /workspace. Consider upgrading volume size."
+fi
 
 # Purge pip cache — wheels are large and the volume has limited space.
-# All packages are now installed in the venv; the cache is no longer needed.
 echo "[setup] Purging pip cache to free disk space..."
 rm -rf /workspace/.pip-cache
 echo "[disk] after pip cache purge:"; df -h /workspace | tail -1
