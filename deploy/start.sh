@@ -1,6 +1,25 @@
 #!/bin/bash
 set -e
 
+# ── Self-reload after git pull ────────────────────────────────────────────────
+# Bash buffers the script into memory at launch. Any code changes made by
+# "git reset --hard" during Step 1 would NOT take effect in the current process.
+# Solution: after the pull, re-exec this script with _BRIGHT_REEXEC=1 set so
+# the fresh file is read from disk. The guard prevents an infinite loop.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_ROOT_TMP="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ "${_BRIGHT_REEXEC:-0}" != "1" ] && [ -f "$APP_ROOT_TMP/app.py" ]; then
+  cd "$APP_ROOT_TMP"
+  if git fetch origin main 2>/dev/null; then
+    git reset --hard origin/main
+    echo "[setup] Code updated — re-execing with latest start.sh..."
+    export _BRIGHT_REEXEC=1
+    exec bash "${BASH_SOURCE[0]}" "$@"
+  fi
+fi
+unset _BRIGHT_REEXEC
+
 # RunPod: container root FS is wiped every restart — only /workspace persists.
 # We install all deps into a venv on the volume so "pip install" runs once.
 PYTHON_BOOT="${PYTHON_BOOT:-${PYTHON:-python3}}"
@@ -19,22 +38,19 @@ APP_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 export APP_ROOT
 echo "  APP_ROOT: $APP_ROOT"
 
-# ── Step 1: Clone or pull latest code ────────────────────────────────────────
+# ── Step 1: Clone (first boot) or confirm pull already done ──────────────────
 if [ ! -f "$APP_ROOT/app.py" ]; then
   echo "[setup] Repo missing — cloning into $APP_ROOT ..."
   mkdir -p "$(dirname "$APP_ROOT")"
-  git clone https://github.com/ivaturipraveen/Bright-Masker.git "$APP_ROOT"
-  echo "[setup] Repo cloned."
-else
-  echo "[setup] Pulling latest code from GitHub..."
-  cd "$APP_ROOT"
-  if ! git fetch origin main; then
-    echo "ERROR: git fetch failed — no network or GitHub unreachable. Cannot guarantee latest code."
-    echo "  Fix: ensure the pod has outbound internet access, then restart."
+  if ! git clone https://github.com/ivaturipraveen/Bright-Masker.git "$APP_ROOT"; then
+    echo "ERROR: git clone failed — check network and repo URL."
     exit 1
   fi
-  git reset --hard origin/main
-  echo "[setup] Code up to date."
+  echo "[setup] Repo cloned."
+else
+  # Pull already happened at top of script (re-exec path) or was just done by
+  # the bootstrap clone above. Log current HEAD for traceability.
+  echo "[setup] Code up to date — $(cd "$APP_ROOT" && git log -1 --oneline)"
 fi
 
 cd "$APP_ROOT"
