@@ -136,7 +136,7 @@ class LlmLayer:
                 t_chunk = asyncio.get_running_loop().time()
                 chunk_end = chunk_start + len(chunk)
                 chunk_candidates = [
-                    {"entity_id": s.entity_id, "text": s.text, "source": s.source}
+                    {"e": s.entity_id, "t": s.text}
                     for s in candidate_spans
                     if s.start < chunk_end and s.end > chunk_start
                 ]
