@@ -137,6 +137,10 @@ The **real** error is almost always earlier in **`/var/log/vllm.log`** (CUDA OOM
 tail -200 /var/log/vllm.log
 ```
 
+TEST URL
+
+https://zsrq7rmqegr7vb-8000.proxy.runpod.net
+
 1. **Remove** a stale **`VLLM_GPU_UTIL=0.70`** in RunPod env (that cap is often too small for 8B + 4096 on 24 GB). Use **`0.90`** or unset to use the script default.
 2. If **`/mask`** then hits GLiNER OOM, **lower** `VLLM_GPU_UTIL` gradually (e.g. **0.88**, **0.85**) or reduce **`VLLM_MAX_MODEL_LEN`** (e.g. **3072**).
 3. On **16 GB** VRAM, full **Qwen3-8B** bf16 may not fit; use a **smaller / AWQ** model and point **`MODEL_DEPLOYED_NAME`** at it.

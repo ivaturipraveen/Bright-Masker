@@ -72,7 +72,7 @@ MODEL_REGISTRY: dict[str, dict] = {
         "timeout":     float(os.getenv("MODEL_DEPLOYED_TIMEOUT", os.getenv("MODEL_PRIVATE_TIMEOUT", "30.0"))),
         "max_retries": int(os.getenv("MODEL_DEPLOYED_MAX_RETRIES", os.getenv("MODEL_PRIVATE_MAX_RETRIES", "2"))),
         "extra_body":  (
-            {"reasoning": False, "show_reasoning": False}
+            {"chat_template_kwargs": {"enable_thinking": False}}
             if os.getenv("MODEL_DEPLOYED_DISABLE_REASONING", os.getenv("MODEL_PRIVATE_DISABLE_REASONING", "true")).lower() == "true"
             else {}
         ),
