@@ -4,8 +4,13 @@ import asyncio
 import json
 import os
 import time
+import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Suppress noisy deprecation warnings from third-party libraries
+warnings.filterwarnings("ignore", message=".*resume_download.*", category=FutureWarning)
+warnings.filterwarnings("ignore", message=".*byte fallback.*", category=UserWarning)
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -118,6 +123,12 @@ async def lifespan(app: FastAPI):
         "llm_review": _app_config.llm_model_name,
         "spacy": settings.spacy_model_name,
     })
+    # Warm up pattern + NER engines so first real request doesn't pay cold-start
+    try:
+        await _pipeline.process("Warm-up: John Smith, john@example.com, 555-0100.")
+        log.info("warmup_complete")
+    except Exception:
+        pass  # warm-up failure must never block startup
     yield
     log.info("server_shutdown")
 

@@ -49,6 +49,13 @@ PY="$VENV/bin/python"
 echo "  PY=$PY  — all pip installs go here, not system Python (override path: BRIGHT_MASKER_VENV)"
 echo "[disk] workspace at boot:"; df -h /workspace | tail -1
 
+# Clean up corrupted torch artifacts left by a previously interrupted install
+if ls "$VENV/lib/"python*/site-packages/ 2>/dev/null | grep -q '^~'; then
+  echo "[setup] Removing corrupted package artifacts (~ prefix) from prior failed install..."
+  rm -rf "$VENV"/lib/python*/site-packages/~*
+  echo "[setup] Cleanup done."
+fi
+
 # Hugging Face cache on volume so models are not re-downloaded every boot
 export HF_HOME="${HF_HOME:-/workspace/.cache/huggingface}"
 mkdir -p "$HF_HOME"
@@ -204,9 +211,19 @@ APP_PORT="${PORT:-8000}"
 # headroom and often fails with "Engine process failed to start". Default higher;
 # if /mask GLiNER OOMs, lower VLLM_GPU_UTIL (e.g. 0.82) or shorten context.
 GPU_MEM="${VLLM_GPU_UTIL:-0.90}"
-MAX_CTX="${VLLM_MAX_MODEL_LEN:-4096}"
+MAX_CTX="${VLLM_MAX_MODEL_LEN:-8192}"
 VLLM_DTYPE="${VLLM_DTYPE:-bfloat16}"
-# Optional extra CLI flags (space-separated), e.g. "--enforce-eager"
+# --enforce-eager: disables CUDA graph capture — avoids graph compilation crashes
+# but costs ~2x throughput (no kernel fusion, no async output processing).
+# Set VLLM_ENFORCE_EAGER=1 only if vLLM crashes during warmup on this GPU.
+if [ "${VLLM_ENFORCE_EAGER:-0}" = "1" ]; then
+  EAGER_FLAG="--enforce-eager"
+  echo "[setup] VLLM_ENFORCE_EAGER=1 — CUDA graphs disabled (slower but safer)"
+else
+  EAGER_FLAG=""
+  echo "[setup] CUDA graphs enabled (faster). Set VLLM_ENFORCE_EAGER=1 if startup crashes."
+fi
+# Optional extra CLI flags (space-separated)
 VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
 
 # v1 multiprocess engine often fails on RunPod; legacy engine is more stable.
@@ -229,9 +246,6 @@ if curl -sf "http://127.0.0.1:$VLLM_PORT/v1/models" | grep -q '"data"' 2>/dev/nu
   echo "[1/2] vLLM already running on port $VLLM_PORT — skipping."
 else
   echo "[1/2] Starting vLLM ($MODEL_NAME) on port $VLLM_PORT..."
-  # --enforce-eager: skip CUDA graph capture — avoids Triton/graph compilation
-  # crashes that produce "Engine process failed to start" even with free VRAM.
-  # Remove via VLLM_EXTRA_ARGS='' only if you need max throughput and graphs work.
   # shellcheck disable=SC2086
   "$PY" -m vllm.entrypoints.openai.api_server \
     --model "$MODEL_NAME" \
@@ -242,7 +256,8 @@ else
     --disable-log-requests \
     --dtype "$VLLM_DTYPE" \
     --trust-remote-code \
-    --enforce-eager \
+    --override-generation-config '{"temperature":0.0,"top_p":1.0,"top_k":-1}' \
+    $EAGER_FLAG \
     $VLLM_EXTRA_ARGS \
     > /var/log/vllm.log 2>&1 &
 
