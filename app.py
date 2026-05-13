@@ -103,6 +103,27 @@ def _apply_model_config(key: str) -> None:
     _active_model_key = key
 
 
+async def _vllm_keepalive_loop() -> None:
+    """Ping local vLLM every 90 s to prevent GPU P-state downscaling and prefix cache eviction."""
+    vllm_url = "http://127.0.0.1:8002/v1/chat/completions"
+    payload = {
+        "model": "Qwen/Qwen3-8B-AWQ",
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+        "temperature": 0.0,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+    }
+    headers = {"Authorization": "Bearer no-key-needed"}
+    while True:
+        await asyncio.sleep(90)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(vllm_url, json=payload, headers=headers)
+            log.debug("vllm_keepalive_ok")
+        except Exception:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _app_config, _pipeline
@@ -154,7 +175,9 @@ async def lifespan(app: FastAPI):
             else:
                 log.warning("vllm_warmup_skipped", reason="vLLM not reachable at startup",
                             base_url=deployed_base)
+    keepalive_task = asyncio.create_task(_vllm_keepalive_loop())
     yield
+    keepalive_task.cancel()
     log.info("server_shutdown")
 
 

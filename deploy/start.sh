@@ -111,7 +111,7 @@ lines = [
   'MODEL_DEPLOYED_NAME=Qwen/Qwen3-8B-AWQ',
   'MODEL_DEPLOYED_BASE_URL=' + os.getenv('MODEL_DEPLOYED_BASE_URL', 'http://127.0.0.1:8002/v1'),
   'MODEL_DEPLOYED_API_KEY=no-key-needed',
-  'MODEL_DEPLOYED_MAX_TOKENS=512',
+  'MODEL_DEPLOYED_MAX_TOKENS=320',
   'MODEL_DEPLOYED_TIMEOUT=60.0',
   'MODEL_DEPLOYED_MAX_RETRIES=2',
   'MODEL_DEPLOYED_DISABLE_REASONING=true',
@@ -132,7 +132,7 @@ lines = [
   'LLM_MODEL_NAME=' + os.getenv('LLM_MODEL_NAME', 'qwen/qwen3-8b'),
   'LLM_TIMEOUT_SECONDS=60.0',
   'LLM_MAX_RETRIES=2',
-  'LLM_MAX_TOKENS=' + os.getenv('LLM_MAX_TOKENS', '512'),
+  'LLM_MAX_TOKENS=' + os.getenv('LLM_MAX_TOKENS', '320'),
   'LLM_TEMPERATURE=0.0',
   'LLM_CONTEXT_CHARS=80',
   'MAX_LLM_BATCH_SIZE=10',
@@ -280,6 +280,10 @@ VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
 export VLLM_USE_V1="${VLLM_USE_V1:-0}"
 # Reduce CUDA allocator fragmentation when GLiNER + vLLM share one GPU.
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
+# Keep GPU driver loaded between requests so P-state doesn't drop and CUDA
+# context doesn't need to be rebuilt on each burst of activity.
+nvidia-smi -pm 1 2>/dev/null && echo "[setup] GPU persistence mode ON." || true
 
 echo "[setup] vLLM: gpu-memory-utilization=$GPU_MEM max-model-len=$MAX_CTX dtype=$VLLM_DTYPE enforce-eager=${VLLM_ENFORCE_EAGER:-0}"
 echo "[setup] torch / CUDA check:"
