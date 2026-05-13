@@ -137,13 +137,23 @@ lines = [
   'LLM_CONTEXT_CHARS=80',
   'MAX_LLM_BATCH_SIZE=10',
   'FAKER_SEED=42',
-  'ENCRYPTION_KEY=' + os.getenv('ENCRYPTION_KEY', 'change-this-to-a-random-secret-key-in-production'),
   'OPENROUTER_API_KEY=' + os.getenv('OPENROUTER_API_KEY', ''),
   'OPENROUTER_BASE_URL=https://openrouter.ai/api/v1',
 ]
-with open(os.path.join(app_root, '.env'), 'w') as f:
+# Encryption key: require explicit env var — never ship with a default
+enc_key = os.getenv('ENCRYPTION_KEY', '')
+if not enc_key or enc_key == 'change-this-to-a-random-secret-key-in-production':
+    import secrets
+    enc_key = secrets.token_hex(32)
+    print('[setup] WARNING: ENCRYPTION_KEY not set — generated random key for this session.')
+    print('[setup]          Set ENCRYPTION_KEY in RunPod env vars to keep it stable across restarts.')
+lines.append('ENCRYPTION_KEY=' + enc_key)
+env_path = os.path.join(app_root, '.env')
+with open(env_path, 'w') as f:
     f.write('\n'.join(lines) + '\n')
-print('.env written.')
+import stat, os as _os
+_os.chmod(env_path, stat.S_IRUSR | stat.S_IWUSR)  # 600 — owner read/write only
+print('.env written (mode 600).')
 "
 
 # ── Step 3: Install Python dependencies ──────────────────────────────────────

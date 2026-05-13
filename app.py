@@ -394,6 +394,9 @@ async def set_model(body: ModelSelectRequest):
     }
 
 
+_MAX_TEXT_CHARS = 500_000  # ~250 pages; larger inputs would OOM the NER layer
+
+
 @app.post("/mask", response_model=MaskResponse)
 async def mask_text(request: MaskRequest):
     """
@@ -405,6 +408,8 @@ async def mask_text(request: MaskRequest):
         raise HTTPException(503, "Pipeline not initialized")
     if not request.text.strip():
         raise HTTPException(400, "text must not be empty")
+    if len(request.text) > _MAX_TEXT_CHARS:
+        raise HTTPException(413, f"text exceeds maximum length of {_MAX_TEXT_CHARS:,} characters")
 
     t0 = time.perf_counter()
     try:
@@ -438,6 +443,8 @@ async def mask_text_stream(request: MaskRequest):
         raise HTTPException(503, "Pipeline not initialized")
     if not request.text.strip():
         raise HTTPException(400, "text must not be empty")
+    if len(request.text) > _MAX_TEXT_CHARS:
+        raise HTTPException(413, f"text exceeds maximum length of {_MAX_TEXT_CHARS:,} characters")
 
     queue: asyncio.Queue = asyncio.Queue()
     result_holder: list = []

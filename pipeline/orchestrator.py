@@ -198,9 +198,22 @@ class PiiMaskingPipeline:
             spans = await self.ner_layer.analyze(preprocessed.text)
             return spans, (time.perf_counter() - t) * 1000
 
-        (pattern_spans, pattern_ms), (ner_spans, ner_ms) = await asyncio.gather(
-            _timed_pattern(), _timed_ner()
+        _pat_result, _ner_result = await asyncio.gather(
+            _timed_pattern(), _timed_ner(), return_exceptions=True
         )
+
+        # Degrade gracefully: if one local layer fails, continue with the other
+        if isinstance(_pat_result, BaseException):
+            log.warning("pattern_layer_failed", error=str(_pat_result)[:200])
+            pattern_spans, pattern_ms = [], 0.0
+        else:
+            pattern_spans, pattern_ms = _pat_result
+
+        if isinstance(_ner_result, BaseException):
+            log.warning("ner_layer_failed", error=str(_ner_result)[:200])
+            ner_spans, ner_ms = [], 0.0
+        else:
+            ner_spans, ner_ms = _ner_result
 
         local_s = time.perf_counter() - t2  # wall-clock of the parallel phase
         local_ms = local_s * 1000
