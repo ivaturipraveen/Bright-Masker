@@ -134,18 +134,30 @@ async def lifespan(app: FastAPI):
     except Exception as _e:
         log.warning("warmup_failed", error=str(_e)[:200])
     # If DEFAULT_MODEL is not deployed, also fire a silent warmup via the deployed
-    # model so local vLLM CUDA graphs are captured before first user switch.
+    # model so local vLLM is exercised before first user switch.
+    # Non-fatal: if vLLM is down or crashes this must not block startup.
     if default_key != "deployed" and "deployed" in MODEL_REGISTRY:
         deployed_base = MODEL_REGISTRY["deployed"].get("base_url", "")
-        if deployed_base and await _check_vllm_health(deployed_base, timeout=3.0):
-            try:
-                _apply_model_config("deployed")
-                await _pipeline.process(_warmup_text)
-                log.info("vllm_warmup_complete")
-            except Exception as _e:
-                log.warning("vllm_warmup_failed", error=str(_e)[:200])
-            finally:
-                _apply_model_config(default_key)  # restore original model
+        if deployed_base:
+            vllm_alive = await _check_vllm_health(deployed_base, timeout=5.0)
+            if vllm_alive:
+                try:
+                    _apply_model_config("deployed")
+                    await _pipeline.process(_warmup_text)
+                    log.info("vllm_warmup_complete")
+                except Exception as _e:
+                    # vLLM may have crashed between health check and first request —
+                    # this is a known issue when CUDA graph memory pushes over VRAM budget.
+                    # Log clearly and continue; the /health/vllm endpoint can diagnose later.
+                    log.warning("vllm_warmup_failed",
+                                error=str(_e)[:200],
+                                hint="vLLM may have crashed due to VRAM OOM after CUDA graph capture. "
+                                     "Check /var/log/vllm.log or set VLLM_ENFORCE_EAGER=1.")
+                finally:
+                    _apply_model_config(default_key)
+            else:
+                log.warning("vllm_warmup_skipped", reason="vLLM not reachable at startup",
+                            base_url=deployed_base)
     yield
     log.info("server_shutdown")
 

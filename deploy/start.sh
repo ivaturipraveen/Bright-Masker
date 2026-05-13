@@ -219,15 +219,18 @@ APP_PORT="${PORT:-8000}"
 GPU_MEM="${VLLM_GPU_UTIL:-0.90}"
 MAX_CTX="${VLLM_MAX_MODEL_LEN:-8192}"
 VLLM_DTYPE="${VLLM_DTYPE:-bfloat16}"
-# --enforce-eager: disables CUDA graph capture — avoids graph compilation crashes
-# but costs ~2x throughput (no kernel fusion, no async output processing).
-# Set VLLM_ENFORCE_EAGER=1 only if vLLM crashes during warmup on this GPU.
-if [ "${VLLM_ENFORCE_EAGER:-0}" = "1" ]; then
-  EAGER_FLAG="--enforce-eager"
-  echo "[setup] VLLM_ENFORCE_EAGER=1 — CUDA graphs disabled (slower but safer)"
-else
+# --enforce-eager: disables CUDA graph capture.
+# DEFAULT ON: Qwen3-8B bf16 weights (15.27GB) + activations (1.45GB) + KV cache (4.38GB)
+# already fills 21.1GB of the 21.16GB (90%) budget. CUDA graph capture adds ~0.43GB on
+# top, pushing vLLM over the limit — it crashes silently seconds after startup.
+# Set VLLM_ENFORCE_EAGER=0 only if you lower VLLM_GPU_UTIL enough to leave headroom
+# (e.g. VLLM_GPU_UTIL=0.85 frees ~1.2GB extra for graph capture).
+if [ "${VLLM_ENFORCE_EAGER:-1}" = "0" ]; then
   EAGER_FLAG=""
-  echo "[setup] CUDA graphs enabled (faster). Set VLLM_ENFORCE_EAGER=1 if startup crashes."
+  echo "[setup] CUDA graphs ENABLED (VLLM_ENFORCE_EAGER=0). Ensure VLLM_GPU_UTIL<=0.85 to avoid OOM crash."
+else
+  EAGER_FLAG="--enforce-eager"
+  echo "[setup] enforce-eager ON — CUDA graphs disabled (stable on this GPU's VRAM budget)."
 fi
 # Optional extra CLI flags (space-separated)
 VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
