@@ -72,8 +72,8 @@ MODEL_REGISTRY: dict[str, dict] = {
     "deployed": {
         "display":     "Qwen3-8B AWQ · Local vLLM",
         "model_name":  "Qwen/Qwen3-8B-AWQ",
-        "base_url":    os.getenv("MODEL_DEPLOYED_BASE_URL", "http://127.0.0.1:8002/v1"),
-        "api_key":     os.getenv("MODEL_DEPLOYED_API_KEY", "no-key-needed"),
+        "base_url":    "http://127.0.0.1:8002/v1",
+        "api_key":     "no-key-needed",
         "max_tokens":  320,
         "timeout":     60.0,
         "max_retries": 2,
