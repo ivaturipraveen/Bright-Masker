@@ -70,24 +70,20 @@ MODEL_REGISTRY: dict[str, dict] = {
         "provider":    "openrouter",
     },
     "deployed": {
-        "display":     os.getenv("MODEL_DEPLOYED_DISPLAY", "Best Model · Deployed"),
-        "model_name":  os.getenv("MODEL_DEPLOYED_NAME", os.getenv("MODEL_PRIVATE_NAME", "")),
-        "base_url":    os.getenv("MODEL_DEPLOYED_BASE_URL", os.getenv("MODEL_PRIVATE_BASE_URL", "")),
-        "api_key":     os.getenv("MODEL_DEPLOYED_API_KEY", os.getenv("MODEL_PRIVATE_API_KEY", "")),
-        "max_tokens":  int(os.getenv("MODEL_DEPLOYED_MAX_TOKENS", os.getenv("MODEL_PRIVATE_MAX_TOKENS", "512"))),
-        "timeout":     float(os.getenv("MODEL_DEPLOYED_TIMEOUT", os.getenv("MODEL_PRIVATE_TIMEOUT", "30.0"))),
-        "max_retries": int(os.getenv("MODEL_DEPLOYED_MAX_RETRIES", os.getenv("MODEL_PRIVATE_MAX_RETRIES", "2"))),
-        "extra_body":  (
-            {"chat_template_kwargs": {"enable_thinking": False}}
-            if os.getenv("MODEL_DEPLOYED_DISABLE_REASONING", os.getenv("MODEL_PRIVATE_DISABLE_REASONING", "true")).lower() == "true"
-            else {}
-        ),
+        "display":     "Qwen3-8B AWQ · Local vLLM",
+        "model_name":  "Qwen/Qwen3-8B-AWQ",
+        "base_url":    os.getenv("MODEL_DEPLOYED_BASE_URL", "http://127.0.0.1:8002/v1"),
+        "api_key":     os.getenv("MODEL_DEPLOYED_API_KEY", "no-key-needed"),
+        "max_tokens":  512,
+        "timeout":     60.0,
+        "max_retries": 2,
+        "extra_body":  {"chat_template_kwargs": {"enable_thinking": False}},
         "speed":       "fast",
         "provider":    "deployed",
     },
 }
 
-_active_model_key: str = os.getenv("DEFAULT_MODEL", "qwen3_8b")
+_active_model_key: str = "deployed"
 
 
 def _apply_model_config(key: str) -> None:

@@ -69,7 +69,7 @@ class Config:
         self.openrouter_base_url = _s("openrouter_base_url", "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
         # ── Model names ─────────────────────────────────────────────────────
-        self.gliner_model_name = _s("gliner_model_name", "GLINER_MODEL_NAME", "urchade/gliner_medium-v2.1")
+        self.gliner_model_name = _s("gliner_model_name", "GLINER_MODEL_NAME", "urchade/gliner_large-v2.1")
         self.llm_model_name = _s("llm_model_name", "LLM_MODEL_NAME", "meta-llama/llama-3.1-8b-instruct")
         self.spacy_model_name = _s("spacy_model_name", "SPACY_MODEL_NAME", "en_core_web_sm")
 
