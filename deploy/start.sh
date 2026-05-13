@@ -253,9 +253,6 @@ echo "============================================"
 echo "  Setup complete — starting services"
 echo "============================================"
 
-# Reduce allocator fragmentation when GLiNER + vLLM share one GPU
-export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-
 # ── Step 7: Start vLLM ───────────────────────────────────────────────────────
 # Default to AWQ quantized model — 4-bit weights are ~4.5 GB vs ~15.3 GB for bf16,
 # leaving room for GLiNER on CUDA and a generous KV cache within 24 GB VRAM.
